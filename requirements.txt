@@ -1,0 +1,13 @@
+# Versões fixas: o build é reproduzível e nenhuma versão nova entra sem passar pelo pip-audit.
+# Para atualizar: suba a versão aqui, rode `pip install -r requirements.txt` e `pip-audit -r requirements.txt`.
+fastapi==0.162.0
+starlette==1.10.0
+uvicorn==0.54.0
+SQLAlchemy==2.1.6
+pydantic==2.14.1
+pydantic-settings==2.16.1
+PyJWT==2.15.1
+python-multipart==0.0.32
+email-validator==2.3.0
+psycopg[binary]==3.3.6
+pillow==13.0.0

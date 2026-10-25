@@ -1,0 +1,3 @@
+# Ferramentas de desenvolvimento/segurança (não vão para o servidor)
+-r requirements.txt
+pip-audit

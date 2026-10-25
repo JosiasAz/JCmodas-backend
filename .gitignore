@@ -1,0 +1,24 @@
+# Segredos (nunca subir)
+.env
+.env.local
+.env.*.local
+
+# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Banco SQLite local
+*.db
+*.db-journal
+
+# Fotos enviadas pelo painel (faça backup à parte)
+static/uploads/*
+!static/uploads/.gitkeep
+
+# Editor / sistema
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
