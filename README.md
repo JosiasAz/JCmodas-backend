@@ -145,4 +145,4 @@ de abrir uma issue pública.
 
 ## Licença
 
-Projeto proprietário. Todos os direitos reservados.
+Projeto proprietário. Todos os direitos reservados. Consulte o arquivo [LICENSE](LICENSE).
