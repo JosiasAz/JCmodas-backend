@@ -60,7 +60,7 @@ cp .env.example .env
 | `CORS_ORIGINS` | Lista de endereços autorizados a acessar a API, ex.: `["http://localhost:4200"]` |
 | `ADMIN_EMAIL` | E-mail do primeiro administrador |
 | `ADMIN_PASSWORD` | Senha do primeiro administrador (usada apenas na criação) |
-| `BLOB_READ_WRITE_TOKEN` | Token do Vercel Blob para armazenar as imagens. Se omitido, as imagens ficam em `static/uploads` |
+| `BLOB_STORE_ID` | Vercel Blob para armazenar as imagens (criada ao conectar o Blob Store). Se omitida, as imagens ficam em `static/uploads` |
 | `CRON_SECRET` | Senha das tarefas agendadas da Vercel (`/api/cron/*`) |
 
 Para gerar uma `SECRET_KEY`:
@@ -127,7 +127,7 @@ O projeto já está preparado para a Vercel (`vercel.json`, `.python-version`). 
 FastAPI em `app/main.py` automaticamente.
 
 1. Importe o repositório na Vercel.
-2. Em **Storage**, crie um **Blob Store** e conecte ao projeto (isso cria `BLOB_READ_WRITE_TOKEN`).
+2. Em **Storage**, crie um **Blob Store** público e conecte ao projeto (isso cria `BLOB_STORE_ID`).
 3. Em **Settings → Environment Variables**, cadastre:
 
    | Variável | Valor |

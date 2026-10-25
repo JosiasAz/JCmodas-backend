@@ -36,7 +36,10 @@ class Settings(BaseSettings):
 
     # Vercel: a plataforma define VERCEL=1; o disco é só leitura e não há processo sempre ligado
     vercel: bool = False
-    # Vercel Blob (fotos enviadas pelo painel). Sem ele, as fotos vão para a pasta upload_dir
+    # Vercel Blob (fotos enviadas pelo painel). Stores novos criam só BLOB_STORE_ID e autenticam
+    # pelo token OIDC que a Vercel injeta em cada requisição; os antigos usam BLOB_READ_WRITE_TOKEN.
+    # Sem nenhum dos dois, as fotos vão para a pasta upload_dir
+    blob_store_id: str | None = None
     blob_read_write_token: str | None = None
     # senha que a Vercel envia nas tarefas agendadas (Cron); protege /api/cron/*
     cron_secret: str | None = None
@@ -65,6 +68,12 @@ class Settings(BaseSettings):
 
     def check_production(self) -> None:
         """Impede publicar a loja com valores de exemplo."""
+        if self.vercel and self.database_url.startswith("sqlite"):
+            # sem DATABASE_URL a API tentaria criar um SQLite, e o disco da Vercel é só leitura
+            raise RuntimeError(
+                "DATABASE_URL não definida na Vercel. Cadastre as variáveis em Settings > "
+                "Environment Variables (ambiente Production) e faça um novo deploy."
+            )
         if not self.is_production:
             return
         problems = []
@@ -74,8 +83,8 @@ class Settings(BaseSettings):
             problems.append("ADMIN_PASSWORD padrão (troque ou, se o admin já existe, apague a linha)")
         if any(o.startswith("http://") and "localhost" not in o for o in self.cors_origins):
             problems.append("CORS_ORIGINS deve usar https:// em produção")
-        if self.vercel and not self.blob_read_write_token:
-            problems.append("BLOB_READ_WRITE_TOKEN ausente (na Vercel as fotos não podem ficar no disco)")
+        if self.vercel and not (self.blob_store_id or self.blob_read_write_token):
+            problems.append("Blob Store não conectado: falta BLOB_STORE_ID (na Vercel as fotos não podem ficar no disco)")
         if self.vercel and not self.cron_secret:
             problems.append("CRON_SECRET ausente (protege a tarefa que cancela pedidos vencidos)")
         if problems:

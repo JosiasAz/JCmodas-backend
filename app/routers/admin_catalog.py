@@ -183,7 +183,7 @@ def delete_product(product_id: int, db: DB, _: Admin, request: Request):
 
 
 @router.post("/uploads", dependencies=[Depends(limit(30, 60))])
-async def upload_image(file: UploadFile, _: Admin):
+async def upload_image(file: UploadFile, _: Admin, request: Request):
     content = await file.read(MAX_UPLOAD + 1)
     if len(content) > MAX_UPLOAD:
         raise HTTPException(400, "Imagem muito grande (máximo 4 MB)")
@@ -191,7 +191,9 @@ async def upload_image(file: UploadFile, _: Admin):
     if not ext:
         raise HTTPException(400, "Envie uma imagem JPG, PNG, WEBP ou GIF")
     content = _clean_image(content, ext)
-    return {"url": await run_in_threadpool(save_image, content, ext)}
+    # na Vercel, o token para gravar no Blob vem neste cabeçalho, colocado pela própria plataforma
+    oidc_token = request.headers.get("x-vercel-oidc-token")
+    return {"url": await run_in_threadpool(save_image, content, ext, oidc_token)}
 
 
 def _not_found(what: str):
