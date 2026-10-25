@@ -1,4 +1,4 @@
-# JC Moda Masculina — API
+# JC Moda Masculina - API
 
 API REST da loja virtual **JC Moda Masculina**. Fornece os dados da vitrine, calcula preços e
 fretes, registra pedidos e atende o painel administrativo da loja.
