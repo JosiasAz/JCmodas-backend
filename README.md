@@ -60,6 +60,8 @@ cp .env.example .env
 | `CORS_ORIGINS` | Lista de endereços autorizados a acessar a API, ex.: `["http://localhost:4200"]` |
 | `ADMIN_EMAIL` | E-mail do primeiro administrador |
 | `ADMIN_PASSWORD` | Senha do primeiro administrador (usada apenas na criação) |
+| `BLOB_READ_WRITE_TOKEN` | Token do Vercel Blob para armazenar as imagens. Se omitido, as imagens ficam em `static/uploads` |
+| `CRON_SECRET` | Senha das tarefas agendadas da Vercel (`/api/cron/*`) |
 
 Para gerar uma `SECRET_KEY`:
 
@@ -118,6 +120,35 @@ static/
 A lista completa está na documentação interativa (`/docs`).
 
 ## Implantação
+
+### Vercel
+
+O projeto já está preparado para a Vercel (`vercel.json`, `.python-version`). A Vercel detecta o
+FastAPI em `app/main.py` automaticamente.
+
+1. Importe o repositório na Vercel.
+2. Em **Storage**, crie um **Blob Store** e conecte ao projeto (isso cria `BLOB_READ_WRITE_TOKEN`).
+3. Em **Settings → Environment Variables**, cadastre:
+
+   | Variável | Valor |
+   |---|---|
+   | `ENVIRONMENT` | `production` |
+   | `DATABASE_URL` / `DATABASE_URL_UNPOOLED` | URLs do banco PostgreSQL |
+   | `SECRET_KEY` | valor longo e aleatório |
+   | `CORS_ORIGINS` | endereço do site, ex.: `["https://www.seudominio.com.br"]` |
+   | `CRON_SECRET` | valor longo e aleatório |
+   | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | apenas se o banco ainda não tiver administrador |
+
+4. Faça o deploy. A tarefa agendada em `vercel.json` cancela diariamente os pedidos não pagos
+   dentro do prazo configurado; a loja também faz essa verificação durante o uso.
+
+Limitações na Vercel:
+
+- Imagens enviadas pelo painel têm limite de 4 MB.
+- O limite de requisições fica na memória de cada instância. Para um limite global, use um
+  armazenamento compartilhado, como Redis.
+
+### Servidor próprio
 
 1. Crie o arquivo `.env` com `ENVIRONMENT=production`, uma `SECRET_KEY` própria e o domínio do
    site em `CORS_ORIGINS`.

@@ -1,24 +1,24 @@
 """Painel: categorias, produtos e upload de imagens."""
-import uuid
 from io import BytesIO
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from PIL import Image, ImageOps
+from starlette.concurrency import run_in_threadpool
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
 
-from app.core.config import settings
 from app.core.deps import DB, Admin
 from app.core.rate_limit import limit
 from app.models import Category, ComboItem, Product, ProductVariant
 from app.schemas.catalog import CategoryIn, CategoryOut, ProductIn, ProductOut
 from app.services.pricing import running_promotions, serialize_product
 from app.services.slug import unique_slug
+from app.services.storage import save_image
 
 router = APIRouter(prefix="/api/admin", tags=["Painel - Catálogo"])
 
-MAX_UPLOAD = 5 * 1024 * 1024
+# 4 MB: a Vercel recusa requisições acima de 4,5 MB
+MAX_UPLOAD = 4 * 1024 * 1024
 MAX_PIXELS = 40_000_000  # ~ 7000 x 5700: acima disso é "bomba" de descompressão, não foto de produto
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
 _SAVE_FORMAT = {".jpg": ("JPEG", {"quality": 88, "optimize": True}), ".png": ("PNG", {"optimize": True}),
@@ -186,16 +186,12 @@ def delete_product(product_id: int, db: DB, _: Admin, request: Request):
 async def upload_image(file: UploadFile, _: Admin):
     content = await file.read(MAX_UPLOAD + 1)
     if len(content) > MAX_UPLOAD:
-        raise HTTPException(400, "Imagem muito grande (máximo 5 MB)")
+        raise HTTPException(400, "Imagem muito grande (máximo 4 MB)")
     ext = _image_extension(content)
     if not ext:
         raise HTTPException(400, "Envie uma imagem JPG, PNG, WEBP ou GIF")
     content = _clean_image(content, ext)
-    folder = Path(settings.upload_dir)
-    folder.mkdir(parents=True, exist_ok=True)
-    name = f"{uuid.uuid4().hex}{ext}"
-    (folder / name).write_bytes(content)
-    return {"url": f"/static/uploads/{name}"}
+    return {"url": await run_in_threadpool(save_image, content, ext)}
 
 
 def _not_found(what: str):

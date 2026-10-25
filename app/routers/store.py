@@ -15,7 +15,7 @@ from app.schemas.catalog import CategoryOut, ProductFilters, ProductOut, Product
 from app.schemas.marketing import BannerOut, ComboOut, PromotionOut
 from app.schemas.order import OrderIn, OrderOut, QuoteIn, QuoteOut, TrackIn
 from app.schemas.store import PublicSettingsOut
-from app.services.orders import create_order
+from app.services.orders import create_order, expire_if_due, expire_pending_orders
 from app.services.pricing import build_quote, get_settings, running_promotions, serialize_combo, serialize_product
 from app.services.privacy import privacy_text
 
@@ -105,6 +105,7 @@ def products(
     page: int = Query(1, ge=1),
     page_size: int = Query(12, ge=1, le=60),
 ):
+    expire_if_due(db)  # estoque de pedidos não pagos vencidos volta antes de mostrar a vitrine
     query = _product_query()
     if q:
         like = f"%{q.strip()}%"
@@ -223,6 +224,7 @@ def quote(data: QuoteIn, db: DB, request: Request):
 # pedidos reservam estoque: limite baixo evita que alguém "trave" a loja com pedidos falsos
 @router.post("/orders", response_model=OrderOut, status_code=201, dependencies=[Depends(limit(5, 10 * 60))])
 def place_order(data: OrderIn, db: DB):
+    expire_pending_orders(db)  # libera o estoque preso em pedidos vencidos antes de reservar
     return create_order(db, data)
 
 

@@ -1,8 +1,9 @@
 import asyncio
+import hmac
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
@@ -42,6 +43,10 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(schema_engine)
     migrate()
     seed_if_empty()
+    if settings.vercel:
+        # na Vercel a função dorme entre requisições: quem expira os pedidos é o Cron (vercel.json)
+        yield
+        return
     task = asyncio.create_task(_expire_loop())
     yield
     task.cancel()
@@ -107,9 +112,6 @@ async def security_headers(request: Request, call_next):
     return response
 
 
-Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
-app.mount("/static", StaticFiles(directory="static"), name="static")
-
 for module in (store, auth, admin_catalog, admin_marketing, admin_orders, admin_users):
     app.include_router(module.router)
 
@@ -117,3 +119,20 @@ for module in (store, auth, admin_catalog, admin_marketing, admin_orders, admin_
 @app.get("/api/health", tags=["Sistema"])
 def health():
     return {"status": "ok"}
+
+
+@app.get("/api/cron/expire-orders", include_in_schema=False)
+def cron_expire_orders(request: Request):
+    """Chamado pelo Cron da Vercel. Só aceita a senha CRON_SECRET que a própria Vercel envia."""
+    expected = f"Bearer {settings.cron_secret}" if settings.cron_secret else None
+    if not expected or not hmac.compare_digest(request.headers.get("authorization", ""), expected):
+        raise HTTPException(401, "Não autorizado")
+    with SessionLocal() as db:
+        return {"expired": expire_pending_orders(db)}
+
+
+# fotos gravadas em disco (fora da Vercel); na Vercel elas ficam no Vercel Blob
+if not settings.vercel:
+    Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
+if Path("static").is_dir():
+    app.mount("/static", StaticFiles(directory="static"), name="static")

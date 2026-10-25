@@ -34,6 +34,13 @@ class Settings(BaseSettings):
     # verificação em duas etapas obrigatória para entrar no painel (sempre ligada em produção)
     mfa_required: bool = False
 
+    # Vercel: a plataforma define VERCEL=1; o disco é só leitura e não há processo sempre ligado
+    vercel: bool = False
+    # Vercel Blob (fotos enviadas pelo painel). Sem ele, as fotos vão para a pasta upload_dir
+    blob_read_write_token: str | None = None
+    # senha que a Vercel envia nas tarefas agendadas (Cron); protege /api/cron/*
+    cron_secret: str | None = None
+
     @field_validator("database_url", "database_url_unpooled")
     @classmethod
     def use_psycopg(cls, url: str | None) -> str | None:
@@ -67,6 +74,10 @@ class Settings(BaseSettings):
             problems.append("ADMIN_PASSWORD padrão (troque ou, se o admin já existe, apague a linha)")
         if any(o.startswith("http://") and "localhost" not in o for o in self.cors_origins):
             problems.append("CORS_ORIGINS deve usar https:// em produção")
+        if self.vercel and not self.blob_read_write_token:
+            problems.append("BLOB_READ_WRITE_TOKEN ausente (na Vercel as fotos não podem ficar no disco)")
+        if self.vercel and not self.cron_secret:
+            problems.append("CRON_SECRET ausente (protege a tarefa que cancela pedidos vencidos)")
         if problems:
             raise RuntimeError("Configuração insegura para produção: " + "; ".join(problems))
 

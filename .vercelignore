@@ -1,0 +1,11 @@
+# arquivos que não vão para a Vercel (deploy pela CLI)
+.env
+.env.local
+.env.*.local
+.venv/
+venv/
+__pycache__/
+*.pyc
+*.db
+static/uploads/
+requirements-dev.txt

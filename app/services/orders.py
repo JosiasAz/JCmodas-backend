@@ -1,6 +1,7 @@
 import re
 import secrets
 import string
+import time
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 
@@ -153,12 +154,45 @@ def expire_pending_orders(db: Session) -> int:
     if not hours:
         return 0
     limit = _utcnow() - timedelta(hours=hours)
-    stale = db.scalars(select(Order).where(Order.status == OrderStatus.NEW, Order.created_at < limit)).all()
-    for order in stale:
-        change_status(db, order, OrderStatus.CANCELED)
+    stale_ids = db.scalars(
+        select(Order.id).where(Order.status == OrderStatus.NEW, Order.created_at < limit)
+    ).all()
+    expired = 0
+    for order_id in stale_ids:
+        # Cron, painel e loja podem rodar isto ao mesmo tempo: só quem conseguir trocar o status
+        # de "novo" para "cancelado" devolve o estoque (nunca duas vezes)
+        claimed = db.execute(
+            update(Order).where(Order.id == order_id, Order.status == OrderStatus.NEW)
+            .values(status=OrderStatus.CANCELED)
+        ).rowcount
+        if not claimed:
+            db.rollback()
+            continue
+        order = db.get(Order, order_id)
+        _return_stock(db, order)
+        db.commit()
         record("expirou", user_email="sistema", entity="orders", entity_id=order.id,
                summary=f"{order.code}: não pago em {hours} h, estoque devolvido")
-    return len(stale)
+        expired += 1
+    return expired
+
+
+_last_expire = 0.0
+EXPIRE_THROTTLE_SECONDS = 5 * 60
+
+
+def expire_if_due(db: Session) -> None:
+    """Versão "preguiçosa" para a vitrine: roda no máximo a cada 5 min por instância.
+
+    Na Vercel não há tarefa em segundo plano e o Cron do plano grátis roda uma vez por dia;
+    assim o estoque de pedidos vencidos volta para a loja enquanto ela é visitada.
+    """
+    global _last_expire
+    now = time.monotonic()
+    if now - _last_expire < EXPIRE_THROTTLE_SECONDS:
+        return
+    _last_expire = now
+    expire_pending_orders(db)
 
 
 ANONYMOUS = "Cliente anonimizado"
