@@ -159,7 +159,7 @@ def expire_pending_orders(db: Session) -> int:
     ).all()
     expired = 0
     for order_id in stale_ids:
-        # Cron, painel e loja podem rodar isto ao mesmo tempo: só quem conseguir trocar o status
+        # tarefa de fundo, painel e loja podem rodar isto ao mesmo tempo: só quem conseguir trocar o status
         # de "novo" para "cancelado" devolve o estoque (nunca duas vezes)
         claimed = db.execute(
             update(Order).where(Order.id == order_id, Order.status == OrderStatus.NEW)
@@ -184,8 +184,8 @@ EXPIRE_THROTTLE_SECONDS = 5 * 60
 def expire_if_due(db: Session) -> None:
     """Versão "preguiçosa" para a vitrine: roda no máximo a cada 5 min por instância.
 
-    Na Vercel não há tarefa em segundo plano e o Cron do plano grátis roda uma vez por dia;
-    assim o estoque de pedidos vencidos volta para a loja enquanto ela é visitada.
+    Complementa a tarefa de fundo (main.py, a cada 10 min): o estoque de pedidos vencidos volta
+    para a loja assim que ela é visitada.
     """
     global _last_expire
     now = time.monotonic()

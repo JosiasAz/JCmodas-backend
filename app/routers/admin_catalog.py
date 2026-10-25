@@ -17,7 +17,7 @@ from app.services.storage import save_image
 
 router = APIRouter(prefix="/api/admin", tags=["Painel - Catálogo"])
 
-# 4 MB: a Vercel recusa requisições acima de 4,5 MB
+# 4 MB (o Nginx do servidor aceita até 6 MB: client_max_body_size)
 MAX_UPLOAD = 4 * 1024 * 1024
 MAX_PIXELS = 40_000_000  # ~ 7000 x 5700: acima disso é "bomba" de descompressão, não foto de produto
 Image.MAX_IMAGE_PIXELS = MAX_PIXELS
@@ -183,7 +183,7 @@ def delete_product(product_id: int, db: DB, _: Admin, request: Request):
 
 
 @router.post("/uploads", dependencies=[Depends(limit(30, 60))])
-async def upload_image(file: UploadFile, _: Admin, request: Request):
+async def upload_image(file: UploadFile, _: Admin):
     content = await file.read(MAX_UPLOAD + 1)
     if len(content) > MAX_UPLOAD:
         raise HTTPException(400, "Imagem muito grande (máximo 4 MB)")
@@ -191,9 +191,7 @@ async def upload_image(file: UploadFile, _: Admin, request: Request):
     if not ext:
         raise HTTPException(400, "Envie uma imagem JPG, PNG, WEBP ou GIF")
     content = _clean_image(content, ext)
-    # na Vercel, o token para gravar no Blob vem neste cabeçalho, colocado pela própria plataforma
-    oidc_token = request.headers.get("x-vercel-oidc-token")
-    return {"url": await run_in_threadpool(save_image, content, ext, oidc_token)}
+    return {"url": await run_in_threadpool(save_image, content, ext)}
 
 
 def _not_found(what: str):

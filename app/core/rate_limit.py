@@ -1,8 +1,7 @@
 """Limite de requisições por IP (janela deslizante, em memória).
 
-Suficiente para uma loja rodando em um único processo. Com vários workers/servidores (ou na
-Vercel, onde cada instância tem a sua memória), troque o armazenamento por Redis para o limite
-valer entre todos.
+Suficiente para uma loja rodando em um único processo. Com vários workers/servidores, troque o
+armazenamento por Redis para o limite valer entre todos.
 Atrás de proxy (Nginx), rode o uvicorn com --proxy-headers para o IP real do cliente chegar aqui.
 """
 import json
@@ -12,8 +11,6 @@ import time
 from collections import defaultdict, deque
 
 from fastapi import HTTPException, Request, status
-
-from app.core.config import settings
 
 
 class RateLimiter:
@@ -61,10 +58,7 @@ def too_many(retry_after: int, message: str = "Muitas tentativas. Aguarde um pou
 
 
 def client_ip(request: Request) -> str:
-    # na Vercel o IP do cliente vem em x-real-ip, preenchido pela própria plataforma (o cliente
-    # não consegue forjar); fora dela o cabeçalho é ignorado, senão qualquer um trocaria de IP
-    if settings.vercel and (real_ip := request.headers.get("x-real-ip")):
-        return real_ip
+    # atrás do Nginx, o uvicorn (--proxy-headers) já troca o IP do proxy pelo do cliente
     return request.client.host if request.client else "desconhecido"
 
 
