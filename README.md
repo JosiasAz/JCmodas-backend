@@ -163,6 +163,30 @@ Limitações na Vercel:
 Em modo de produção, a API não inicia com configurações padrão inseguras, desativa a documentação
 pública e exige autenticação em duas etapas no painel.
 
+### Publicação automática (GitHub Actions)
+
+A cada push na `main`, o workflow `.github/workflows/publicar.yml` confere se o código abre sem erro
+e, se estiver tudo certo, entra no servidor por SSH e roda `deploy/atualizar.sh` (baixa o código,
+instala dependências, reinicia a API e confere se ela voltou). Se a conferência falhar, o servidor
+continua com a versão anterior. Também dá para publicar à mão em **Actions > Publicar no servidor >
+Run workflow**.
+
+Configuração única, no ambiente **VPS_HOST** do repositório (**Settings > Environments > VPS_HOST**;
+o workflow usa `environment: VPS_HOST`):
+
+| Nome | Tipo | Valor |
+| --- | --- | --- |
+| `VPS_HOST` | Secret | IP do servidor |
+| `VPS_USER` | Secret | usuário do SSH (na Oracle Cloud: `ubuntu`) |
+| `VPS_PATH` | Secret | caminho da pasta `backend` no servidor (ex.: `/home/ubuntu/JC-Moda/backend`) |
+| `VPS_SSH_KEY` | Secret | chave privada de deploy (conteúdo inteiro do arquivo) |
+| `VPS_KNOWN_HOSTS` | Secret | linhas do servidor no `known_hosts` (`ssh-keyscan IP`) |
+| `API_URL` | Variable | endereço público da API, para a conferência final (opcional) |
+
+A chave pública correspondente vai no `~/.ssh/authorized_keys` do servidor. Use uma chave só para
+isso: se precisar, ela pode ser removida sem afetar o acesso de ninguém. O usuário precisa poder
+rodar `sudo systemctl restart jcmoda-api` sem senha (padrão na Oracle Cloud).
+
 ## Segurança
 
 - Preços e descontos são sempre recalculados no servidor

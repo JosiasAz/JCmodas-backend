@@ -1,0 +1,61 @@
+# Publica a API no servidor a cada push na main (ou pelo botão "Run workflow" na aba Actions).
+# Configuração única: veja "Publicação automática" no README.md.
+name: Publicar no servidor
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# um envio por vez: dois pushes seguidos não atualizam o servidor ao mesmo tempo
+concurrency:
+  group: publicar-servidor
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  conferir:
+    name: Conferir se o código abre
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version-file: .python-version
+          cache: pip
+      - run: pip install -r requirements.txt
+      # se faltar import ou tiver erro de sintaxe, para aqui e o servidor continua com a versão anterior
+      - run: python -c "import app.main"
+
+  publicar:
+    name: Atualizar o servidor
+    needs: conferir
+    runs-on: ubuntu-latest
+    # os segredos (VPS_*) e a variável API_URL estão cadastrados neste ambiente do GitHub
+    # (Settings > Environments > VPS_HOST); sem esta linha o job não enxerga nenhum deles
+    environment: VPS_HOST
+    steps:
+      - name: Preparar acesso SSH
+        env:
+          SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
+          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
+          # chave do servidor fixada: se alguém se passar pelo servidor, a conexão é recusada
+          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
+
+      - name: Rodar a atualização no servidor
+        env:
+          VPS_HOST: ${{ secrets.VPS_HOST }}
+          VPS_USER: ${{ secrets.VPS_USER }}
+          VPS_PATH: ${{ secrets.VPS_PATH }}
+        run: ssh -i ~/.ssh/deploy -o BatchMode=yes "$VPS_USER@$VPS_HOST" "bash '$VPS_PATH/deploy/atualizar.sh'"
+
+      - name: Conferir a API pela internet
+        env:
+          API_URL: ${{ vars.API_URL }}
+        if: env.API_URL != ''
+        run: curl -fsS --retry 5 --retry-delay 3 "$API_URL/api/health"
