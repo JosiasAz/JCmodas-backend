@@ -66,7 +66,10 @@ jobs:
           host=$(printf '%s' "$VPS_HOST" | tr -d '[:space:]')
           user=$(printf '%s' "$VPS_USER" | tr -d '[:space:]')
           path=$(printf '%s' "$VPS_PATH" | tr -d '\r\n' | sed 's/[[:space:]]*$//')
-          ssh -i ~/.ssh/deploy -o BatchMode=yes "$user@$host" "bash '$path/deploy/atualizar.sh'"
+          # baixa o código antes de chamar o script: assim vale sempre a versão nova dele
+          # (e funciona até na primeira vez, quando o servidor ainda nem tem o deploy/atualizar.sh)
+          ssh -i ~/.ssh/deploy -o BatchMode=yes "$user@$host" \
+            "cd '$path' && git fetch --quiet origin main && git merge --ff-only origin/main && bash deploy/atualizar.sh"
 
       - name: Conferir a API pela internet
         env:
