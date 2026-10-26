@@ -13,7 +13,7 @@ O site (front-end) é mantido em um repositório separado e consome esta API.
 - Registro e acompanhamento de pedidos
 - Painel administrativo com autenticação em duas etapas, gestão de usuários e histórico de alterações
 - Upload de imagens de produtos
-- Política de privacidade configurável e anonimização de dados de pedidos antigos
+- Política de privacidade automática (ou personalizada) e anonimização diária dos dados de pedidos encerrados há mais de 12 meses
 
 ## Tecnologias
 

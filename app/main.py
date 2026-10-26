@@ -1,4 +1,5 @@
 import asyncio
+import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
@@ -12,7 +13,8 @@ from app.core.database import Base, SessionLocal, migrate, schema_engine
 from app.routers import admin_catalog, admin_marketing, admin_orders, admin_users, auth, store
 from app.seed import seed_if_empty
 from app.services.audit import record, security_log
-from app.services.orders import expire_pending_orders
+from app.services.orders import anonymize_orders, expire_pending_orders
+from app.services.privacy import RETENTION_MONTHS
 
 settings.check_production()
 
@@ -20,15 +22,25 @@ DOCS_PATHS = ("/docs", "/redoc", "/openapi.json")
 
 
 EXPIRE_EVERY_SECONDS = 10 * 60
+CLEANUP_EVERY_SECONDS = 24 * 60 * 60
+_last_cleanup = 0.0
 
 
 def _expire_once() -> None:
+    global _last_cleanup
     with SessionLocal() as db:
         expire_pending_orders(db)
+        # LGPD: uma vez por dia apaga os dados pessoais de pedidos encerrados há mais de 12 meses
+        now = time.monotonic()
+        if not _last_cleanup or now - _last_cleanup >= CLEANUP_EVERY_SECONDS:
+            _last_cleanup = now
+            count = anonymize_orders(db, RETENTION_MONTHS)
+            if count:
+                record("anonimizou", entity="orders", summary=f"LGPD automático: {count} pedido(s) antigos")
 
 
 async def _expire_loop() -> None:
-    """Cancela pedidos não pagos vencidos a cada 10 min (o estoque volta para a loja)."""
+    """Cancela pedidos não pagos vencidos a cada 10 min (o estoque volta para a loja) e faz a limpeza LGPD diária."""
     while True:
         try:
             await asyncio.to_thread(_expire_once)

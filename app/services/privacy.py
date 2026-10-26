@@ -1,13 +1,17 @@
 """Política de privacidade da loja (LGPD).
 
-Se o lojista ainda não escreveu a dele em Configurações, a vitrine mostra este modelo preenchido
-com os dados da loja. Os trechos entre colchetes precisam ser completados pelo lojista.
+Se o lojista ainda não escreveu a dele em Configurações, a vitrine mostra este modelo, já completo e
+preenchido com os dados da loja (nome, endereço e contato). O lojista não precisa mexer em nada.
 """
 from app.models import StoreSettings
 
+# pedidos entregues/cancelados há mais tempo que isso perdem os dados pessoais (limpeza automática diária)
+RETENTION_MONTHS = 12
+TEMPLATE_UPDATED = "outubro de 2026"
+
 TEMPLATE = """## Quem somos
-{store_name} ("nós") é a controladora dos dados pessoais tratados nesta loja virtual.
-CNPJ: [preencha]. Contato para assuntos de privacidade (encarregado): {contact}.
+{store_name} ("nós") é a responsável (controladora) pelos dados pessoais tratados nesta loja virtual{address}.
+Contato para assuntos de privacidade (encarregado): {contact}.
 
 ## Quais dados coletamos
 - Para entregar e acompanhar o seu pedido: nome, telefone/WhatsApp, e-mail (opcional) e endereço de entrega.
@@ -28,8 +32,9 @@ Não vendemos seus dados e não enviamos propaganda sem o seu pedido.
 - Transportadora ou entregador, apenas o necessário para a entrega.
 
 ## Por quanto tempo guardamos
-Os dados do pedido são mantidos pelo prazo exigido pela legislação fiscal. Depois de [12] meses da
-entrega, nome, telefone, e-mail e endereço são anonimizados; ficam apenas os valores e produtos.
+Guardamos os dados do pedido enquanto ele está em andamento e por até {months} meses depois de entregue ou
+cancelado, para trocas, garantia e atendimento. Depois disso, nome, telefone, e-mail e endereço são
+apagados automaticamente; ficam apenas os valores e os produtos, para o controle de vendas da loja.
 
 ## Seus direitos
 Você pode pedir a confirmação, o acesso, a correção, a anonimização ou a exclusão dos seus dados,
@@ -43,14 +48,25 @@ das alterações feitas. Em caso de incidente que possa trazer risco a você, av
 O site guarda no seu navegador o carrinho de compras e, só se você marcar "lembrar meus dados",
 os dados do checkout. Você pode apagá-los limpando os dados do site no navegador.
 
-Última atualização: [data]."""
+Última atualização: {updated}."""
+
+
+def format_phone(digits: str) -> str:
+    """5592993299773 -> +55 (92) 99329-9773 (números de fora do Brasil ficam só com o +)."""
+    if digits.startswith("55") and len(digits) in (12, 13):
+        ddd, num = digits[2:4], digits[4:]
+        return f"+55 ({ddd}) {num[:-4]}-{num[-4:]}"
+    return f"+{digits}"
 
 
 def privacy_text(store: StoreSettings, force_template: bool = False) -> str:
     if store.privacy_policy.strip() and not force_template:
         return store.privacy_policy
-    contacts = [c for c in (store.email, f"WhatsApp {store.whatsapp}" if store.whatsapp else "") if c]
+    contacts = [c for c in (store.email, f"WhatsApp {format_phone(store.whatsapp)}" if store.whatsapp else "") if c]
     return TEMPLATE.format(
-        store_name=store.store_name or "[nome da loja]",
-        contact=" / ".join(contacts) or "[e-mail ou WhatsApp de contato]",
+        store_name=store.store_name or "Esta loja",
+        address=f", com endereço em {store.address}" if store.address else "",
+        contact=" / ".join(contacts) or "os canais de atendimento informados no site",
+        months=RETENTION_MONTHS,
+        updated=TEMPLATE_UPDATED,
     )

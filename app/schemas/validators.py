@@ -22,6 +22,24 @@ def _link(value: str) -> str:
     raise ValueError("O link deve começar com / (página da loja) ou https://")
 
 
+def _whatsapp(value: str) -> str:
+    """Aceita o número do jeito que vem do WhatsApp ("+55 92 99329-9773", "(92) 99329-9773") e guarda só os dígitos com DDI."""
+    digits = re.sub(r"\D", "", value).lstrip("0")
+    if not digits:
+        return ""
+    if not value.strip().startswith("+") and len(digits) in (10, 11):  # DDD + número, sem o 55
+        digits = "55" + digits
+    if not 10 <= len(digits) <= 15:
+        raise ValueError("WhatsApp inválido: informe DDD e número, ex.: (92) 99329-9773")
+    return digits
+
+
+def _instagram(value: str) -> str:
+    """Aceita "@perfil", "perfil" ou o link do perfil e guarda só o nome."""
+    value = re.sub(r"^(https?://)?(www\.)?instagram\.com/", "", value.strip(), flags=re.I)
+    return value.split("?")[0].strip("/").lstrip("@")
+
+
 def _hex(value: str) -> str:
     if not _HEX.match(value):
         raise ValueError("Cor inválida (use o formato #RRGGBB)")
@@ -31,3 +49,5 @@ def _hex(value: str) -> str:
 ImageUrl = Annotated[str | None, AfterValidator(_image_url)]
 Link = Annotated[str, AfterValidator(_link)]
 HexColor = Annotated[str, AfterValidator(_hex)]
+Whatsapp = Annotated[str, AfterValidator(_whatsapp)]
+Instagram = Annotated[str, AfterValidator(_instagram)]

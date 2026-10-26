@@ -4,6 +4,7 @@ from typing import Annotated
 from pydantic import BaseModel, EmailStr, Field
 
 from app.schemas.catalog import ORM
+from app.schemas.validators import Instagram, Whatsapp
 
 
 class LoginIn(BaseModel):
@@ -106,11 +107,17 @@ class StoreBase(BaseModel):
 
 
 class SettingsIn(StoreBase):
+    # normaliza o que o lojista cola (só na entrada: dados antigos no banco não travam a vitrine)
+    whatsapp: Whatsapp = ""
+    instagram: Instagram = Field(default="", max_length=60)
+    email: str = Field(default="", max_length=120)
+    address: str = Field(default="", max_length=200)
+    opening_hours: str = Field(default="", max_length=120)
     privacy_policy: str = Field(default="", max_length=30000)
 
 
-class SettingsOut(SettingsIn, ORM):
-    pass
+class SettingsOut(StoreBase, ORM):
+    privacy_policy: str = ""
 
 
 class PublicSettingsOut(StoreBase, ORM):
