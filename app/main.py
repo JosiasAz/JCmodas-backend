@@ -104,6 +104,9 @@ async def security_headers(request: Request, call_next):
         headers["Content-Security-Policy"] = "default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; frame-ancestors 'none'"
     if settings.is_production:
         headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    if request.url.path.startswith("/static/uploads/") and response.status_code == 200:
+        # cada foto tem nome único (uuid) e nunca é alterada: o navegador guarda e não pergunta de novo
+        headers["Cache-Control"] = "public, max-age=31536000, immutable"
     return response
 
 
