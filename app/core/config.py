@@ -34,6 +34,10 @@ class Settings(BaseSettings):
     # verificação em duas etapas obrigatória para entrar no painel (sempre ligada em produção)
     mfa_required: bool = False
 
+    # "Entrar com Google" no painel: ID do cliente OAuth (Google Cloud > Credenciais).
+    # Vazio = botão escondido. Só entra quem já é administrador com o mesmo e-mail.
+    google_client_id: str | None = None
+
     @field_validator("database_url", "database_url_unpooled")
     @classmethod
     def use_psycopg(cls, url: str | None) -> str | None:

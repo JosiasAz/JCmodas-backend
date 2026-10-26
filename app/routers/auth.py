@@ -1,13 +1,13 @@
 from fastapi import APIRouter, HTTPException, Request
 from sqlalchemy import select
 
-from app.core import totp
+from app.core import google, totp
 from app.core.config import settings
 from app.core.deps import DB, Admin
 from app.core.rate_limit import RateLimiter, client_ip, too_many
 from app.core.security import MFA, create_token, decode_token, hash_password, needs_rehash, verify_password
 from app.models import User
-from app.schemas.store import LoginIn, LoginOut, MfaLoginIn
+from app.schemas.store import GoogleLoginIn, LoginIn, LoginOut, MfaLoginIn
 from app.services.audit import record, security_event
 
 router = APIRouter(prefix="/api/auth", tags=["Autenticação"])
@@ -60,7 +60,11 @@ def login(data: LoginIn, db: DB, request: Request):
     if needs_rehash(user.password_hash):  # hash antigo (240 mil iterações) vira o atual
         user.password_hash = hash_password(data.password)
         db.commit()
+    return _after_credentials(user, request)
 
+
+def _after_credentials(user: User, request: Request) -> LoginOut:
+    """Senha ou conta Google conferida: com verificação em duas etapas ainda falta o código."""
     if user.mfa_enabled:
         return LoginOut(
             name=user.name,
@@ -69,6 +73,36 @@ def login(data: LoginIn, db: DB, request: Request):
             mfa_enabled=True,
         )
     return _session(user, request)
+
+
+@router.get("/google")
+def google_config():
+    """ID do cliente para o botão "Entrar com Google" (null = recurso desligado)."""
+    return {"client_id": settings.google_client_id}
+
+
+@router.post("/google", response_model=LoginOut)
+def login_google(data: GoogleLoginIn, db: DB, request: Request):
+    """Entrar com a conta Google. Não cria conta: o e-mail precisa ser de um administrador já cadastrado."""
+    if not settings.google_client_id:
+        raise HTTPException(404, "Login com Google não está ativado")
+    retry = _login_per_ip.hit(client_ip(request))
+    if retry:
+        security_event("login_blocked", request)
+        raise too_many(retry, "Muitas tentativas de login. Aguarde alguns minutos.")
+
+    claims = google.verify_id_token(data.credential)
+    if not claims:
+        security_event("login_fail", request)
+        raise HTTPException(401, "Não foi possível confirmar a conta Google. Tente de novo.")
+    email = claims["email"].lower()
+    user = db.scalar(select(User).where(User.email == email))
+    if not user or not user.is_admin:
+        record("login_falhou", request=request, user_email=email, entity="users",
+               summary="conta Google sem acesso ao painel")
+        security_event("login_fail", request, user=email)
+        raise HTTPException(401, "Esta conta Google não tem acesso ao painel")
+    return _after_credentials(user, request)
 
 
 @router.post("/mfa", response_model=LoginOut)

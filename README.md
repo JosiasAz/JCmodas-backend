@@ -115,6 +115,8 @@ static/
 | `POST /api/orders` | Cria um pedido |
 | `POST /api/orders/track` | Consulta o andamento de um pedido |
 | `POST /api/auth/login` | Login no painel administrativo |
+| `GET /api/auth/google` | ID do cliente do "Entrar com Google" (`null` = desligado) |
+| `POST /api/auth/google` | Login no painel com conta Google (só e-mails de administradores já cadastrados) |
 | `/api/admin/...` | Rotas do painel (requerem autenticação) |
 
 A lista completa está na documentação interativa (`/docs`).

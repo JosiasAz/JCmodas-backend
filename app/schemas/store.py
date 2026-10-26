@@ -27,6 +27,10 @@ class LoginOut(BaseModel):
     mfa_setup_required: bool = False
 
 
+class GoogleLoginIn(BaseModel):
+    credential: str = Field(max_length=4000)  # ID token devolvido pelo botão do Google
+
+
 class MfaLoginIn(BaseModel):
     mfa_token: str = Field(max_length=1000)
     code: str = Field(min_length=6, max_length=20)
