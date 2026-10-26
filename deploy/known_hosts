@@ -1,0 +1,9 @@
+# Identidade pública do servidor (168.138.231.30). Não é segredo: é o que qualquer um vê ao conectar.
+# O GitHub Actions só conecta se o servidor apresentar uma destas chaves (protege contra servidor falso).
+# Se o servidor for recriado, atualize com:  ssh-keyscan 168.138.231.30
+# 168.138.231.30:22 SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.17
+168.138.231.30 ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABgQDCI4P7aDD10v8IEPDRVSiHNPJF9X6aSojYIlHzBCMLn2xnEmneHD8ryPS3GyulEuJxgIWiQL+qcmQhIOEnGKOV8xAmkjSE8azqZQUaI18Hrn9IOzXmcjHiwTIcyvP2NKH3naa8jlw0WVcQPn3rft4MDGP51Wg4yeTnvdAI8ge49sA4657HJRPK9D7EJditC/8Jdx1EcatuJwDF/i7lNlepot4Ao6m+Wc5dTvNZp4Tqwih4wLskIcdPOSv5aWl/+ajNr37kDXHOhXOfatIGyczrXmB2CMSpJ8OC7dt+AQTNbn8EQkfC5Ve7vuAxs04T9AA8vS4bUl8e4CVvpHTNS2BGA8xgYTxLmgILm4wZ+iTeb9S5LkL8wXUgS33gjW2PuB/hAyh7N6qU39OLK/ohrnkRFLwUvB9U2p5WwLA17m4Q34WdMdmVlUNfKL8yUEQbQt/J4piC71doFLW4UiwqcMVHO/j/G3e1p/8yhQ0WnaDCurcBwuYEmeoX1TF5OYFnIGU=
+# 168.138.231.30:22 SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.17
+168.138.231.30 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBAPC1f7DbdFc1NV9jhhsIrYF/5qF5ZKCNNlGcUz6TnEQeuTpaOfZBxDo6RKVF/E39l0LqvJDbr5DJMFvSwEK/CQ=
+# 168.138.231.30:22 SSH-2.0-OpenSSH_8.9p1 Ubuntu-3ubuntu0.17
+168.138.231.30 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKk7/i7KpiiSqzf43lvYBnCx8KFvhDnGfRWTcRCnQwrv

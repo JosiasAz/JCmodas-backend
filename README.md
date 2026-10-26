@@ -180,10 +180,10 @@ o workflow usa `environment: VPS_HOST`):
 | `VPS_USER` | Secret | usuário do SSH (na Oracle Cloud: `ubuntu`) |
 | `VPS_PATH` | Secret | caminho da pasta `backend` no servidor (ex.: `/home/ubuntu/JC-Moda/backend`) |
 | `VPS_SSH_KEY` | Secret | chave privada de deploy (conteúdo inteiro do arquivo) |
-| `VPS_KNOWN_HOSTS` | Secret | linhas do servidor no `known_hosts` (`ssh-keyscan IP`) |
 | `API_URL` | Variable | endereço público da API, para a conferência final (opcional) |
 
-A chave pública correspondente vai no `~/.ssh/authorized_keys` do servidor. Use uma chave só para
+A identidade pública do servidor fica em `deploy/known_hosts` (não é segredo; se o servidor for
+recriado, atualize com `ssh-keyscan IP`). A chave pública de deploy vai no `~/.ssh/authorized_keys` do servidor. Use uma chave só para
 isso: se precisar, ela pode ser removida sem afetar o acesso de ninguém. O usuário precisa poder
 rodar `sudo systemctl restart jcmoda-api` sem senha (padrão na Oracle Cloud).
 

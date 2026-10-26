@@ -20,8 +20,8 @@ jobs:
     name: Conferir se o código abre
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version-file: .python-version
           cache: pip
@@ -37,25 +37,24 @@ jobs:
     # (Settings > Environments > VPS_HOST); sem esta linha o job não enxerga nenhum deles
     environment: VPS_HOST
     steps:
+      # só para pegar o deploy/known_hosts (identidade pública do servidor)
+      - uses: actions/checkout@v5
+        with:
+          sparse-checkout: deploy
+
       - name: Preparar acesso SSH
         env:
           SSH_KEY: ${{ secrets.VPS_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.VPS_KNOWN_HOSTS }}
         run: |
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           # tr -d '\r': texto colado a partir do Windows vem com CRLF, e o SSH não aceita as linhas assim
           printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/deploy && chmod 600 ~/.ssh/deploy
-          # chave do servidor fixada: se alguém se passar pelo servidor, a conexão é recusada
-          printf '%s\n' "$KNOWN_HOSTS" | tr -d '\r' > ~/.ssh/known_hosts
-          # mostra as impressões digitais (públicas) lidas, para conferir se o segredo foi colado inteiro
-          ssh-keygen -l -f ~/.ssh/known_hosts || {
-            echo "::error::VPS_KNOWN_HOSTS vazio ou com conteúdo errado. Cole de novo as linhas do servidor (saída do ssh-keyscan)."
-            exit 1
-          }
           ssh-keygen -y -f ~/.ssh/deploy > /dev/null || {
             echo "::error::VPS_SSH_KEY vazio ou com conteúdo errado. Cole de novo a chave privada inteira (jcmoda_deploy)."
             exit 1
           }
+          # identidade do servidor fixada no repositório: se alguém se passar pelo servidor, a conexão é recusada
+          cp deploy/known_hosts ~/.ssh/known_hosts
 
       - name: Rodar a atualização no servidor
         env:

@@ -1,3 +1,4 @@
 # scripts que rodam no servidor Linux precisam de quebra de linha LF (com CRLF do Windows o bash falha)
 *.sh text eol=lf
 *.yml text eol=lf
+deploy/known_hosts text eol=lf
