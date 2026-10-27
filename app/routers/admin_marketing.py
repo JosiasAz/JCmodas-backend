@@ -6,7 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DB, Admin
-from app.models import Banner, Combo, ComboItem, Coupon, Product, Promotion
+from app.models import Banner, Combo, ComboItem, Coupon, OrderItem, Product, Promotion
 from app.schemas.marketing import (
     BannerIn,
     BannerOut,
@@ -164,9 +164,17 @@ def update_combo(combo_id: int, data: ComboIn, db: DB, _: Admin):
     return serialize_combo(_load_combo(db, combo_id), running_promotions(db))
 
 
-@router.delete("/combos/{combo_id}", status_code=204)
+@router.delete("/combos/{combo_id}")
 def delete_combo(combo_id: int, db: DB, _: Admin):
-    _delete(db, Combo, combo_id)
+    """Combo que já foi pedido só sai da loja (o pedido continua apontando para ele)."""
+    combo = _get(db, Combo, combo_id)
+    archived = db.scalar(select(OrderItem.id).where(OrderItem.combo_id == combo_id).limit(1)) is not None
+    if archived:
+        combo.active = False
+    else:
+        db.delete(combo)
+    db.commit()
+    return {"archived": archived}
 
 
 # ---------------------------------------------------------------- anúncios

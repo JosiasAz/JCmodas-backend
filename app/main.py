@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
@@ -70,6 +71,20 @@ app = FastAPI(
     redoc_url=None if settings.is_production else "/redoc",
     openapi_url=None if settings.is_production else "/openapi.json",
 )
+
+@app.middleware("http")
+async def unexpected_errors(request: Request, call_next):
+    """Erro inesperado vira um 500 com mensagem clara.
+
+    Registrado antes do CORS para ficar por dentro dele: sem isso a resposta de erro saía sem os
+    cabeçalhos de CORS e o navegador mostrava "Sem conexão com o servidor" no lugar do erro real.
+    """
+    try:
+        return await call_next(request)
+    except Exception:
+        security_log.exception("erro inesperado em %s %s", request.method, request.url.path)
+        return JSONResponse({"detail": "Algo deu errado no servidor. Tente de novo em instantes."}, status_code=500)
+
 
 app.add_middleware(
     CORSMiddleware,
