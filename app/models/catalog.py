@@ -33,6 +33,8 @@ class Product(Base):
     compare_at_price: Mapped[float | None]
     category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"))
     images: Mapped[list[str]] = mapped_column(JSON, default=list)
+    # foto -> cor (ex.: {"/static/x.jpg": "Azul"}): na loja, escolher a cor mostra a foto dela
+    image_colors: Mapped[dict[str, str]] = mapped_column(JSON, default=dict, server_default="{}")
     featured: Mapped[bool] = mapped_column(default=False)
     is_new: Mapped[bool] = mapped_column(default=False)
     active: Mapped[bool] = mapped_column(default=True)

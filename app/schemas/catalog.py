@@ -64,10 +64,17 @@ class ProductIn(BaseModel):
     compare_at_price: float | None = Field(default=None, gt=0)
     category_id: int | None = None
     images: list[ImageUrl] = Field(default=[], max_length=12)
+    image_colors: dict[str, Annotated[str, Field(max_length=40)]] = Field(default={}, max_length=12)
     featured: bool = False
     is_new: bool = False
     active: bool = True
     variants: list[VariantIn] = Field(default=[], max_length=100)
+
+    @model_validator(mode="after")
+    def _drop_stale_colors(self):
+        # foto removida ou cor apagada não deixa sobra
+        self.image_colors = {url: c.strip() for url, c in self.image_colors.items() if url in self.images and c.strip()}
+        return self
 
 
 class ProductOut(ORM):
@@ -81,6 +88,7 @@ class ProductOut(ORM):
     category_name: str | None = None
     category_slug: str | None = None
     images: list[str]
+    image_colors: dict[str, str] = {}
     featured: bool
     is_new: bool
     active: bool
