@@ -17,10 +17,6 @@ from app.services.pricing import get_settings
 router = APIRouter(prefix="/api/admin", tags=["Painel - Vendas"])
 
 LOW_STOCK = 3
-# teto anual de faturamento do MEI (LC 123/2006, art. 18-A). Em out/2026 o aumento ainda não foi aprovado.
-MEI_LIMIT = 81_000
-# pedidos que contam como venda feita (o "novo" ainda não foi pago; o cancelado não conta)
-SOLD = (OrderStatus.PAID, OrderStatus.PREPARING, OrderStatus.SHIPPED, OrderStatus.DELIVERED)
 
 
 @router.get("/orders", response_model=OrderPage)
@@ -102,15 +98,9 @@ def dashboard(db: DB, _: Admin, days: int = Query(30, ge=1, le=365)):
     ).all()
 
     statuses = dict(db.execute(select(Order.status, func.count()).group_by(Order.status)).all())
-    year_start = datetime(date.today().year, 1, 1)
-    year_revenue = db.scalar(
-        select(func.coalesce(func.sum(Order.total), 0)).where(Order.status.in_(SOLD), Order.created_at >= year_start)
-    )
 
     return DashboardOut(
         revenue=round(revenue, 2),
-        year_revenue=round(year_revenue, 2),
-        mei_limit=MEI_LIMIT,
         orders=count,
         average_ticket=round(revenue / count, 2) if count else 0,
         new_orders=statuses.get(OrderStatus.NEW, 0),

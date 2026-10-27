@@ -17,6 +17,7 @@ from app.schemas.marketing import (
     PromotionIn,
     PromotionOut,
 )
+from app.services.catalog_links import release_from_orders
 from app.services.pricing import running_promotions, serialize_combo
 from app.services.slug import unique_slug
 
@@ -164,17 +165,13 @@ def update_combo(combo_id: int, data: ComboIn, db: DB, _: Admin):
     return serialize_combo(_load_combo(db, combo_id), running_promotions(db))
 
 
-@router.delete("/combos/{combo_id}")
+@router.delete("/combos/{combo_id}", status_code=204)
 def delete_combo(combo_id: int, db: DB, _: Admin):
-    """Combo que já foi pedido só sai da loja (o pedido continua apontando para ele)."""
+    """Apaga o combo. Pedidos encerrados continuam mostrando o que foi comprado (o item guarda uma cópia)."""
     combo = _get(db, Combo, combo_id)
-    archived = db.scalar(select(OrderItem.id).where(OrderItem.combo_id == combo_id).limit(1)) is not None
-    if archived:
-        combo.active = False
-    else:
-        db.delete(combo)
+    release_from_orders(db, OrderItem.combo_id, [combo_id], "Este combo")
+    db.delete(combo)
     db.commit()
-    return {"archived": archived}
 
 
 # ---------------------------------------------------------------- anúncios

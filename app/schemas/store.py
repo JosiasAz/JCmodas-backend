@@ -153,9 +153,6 @@ class AuditPage(BaseModel):
 
 class DashboardOut(BaseModel):
     revenue: float
-    # vendas do ano (pagas em diante) para comparar com o teto de faturamento do MEI
-    year_revenue: float = 0
-    mei_limit: float = 0
     orders: int
     average_ticket: float
     new_orders: int

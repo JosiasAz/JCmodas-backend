@@ -10,6 +10,7 @@ from sqlalchemy.orm import selectinload
 from app.core.deps import DB, Admin
 from app.core.rate_limit import limit
 from app.models import Category, ComboItem, OrderItem, Product, ProductVariant
+from app.services.catalog_links import release_from_orders
 from app.schemas.catalog import CategoryIn, CategoryOut, ProductIn, ProductOut
 from app.services.pricing import running_promotions, serialize_product
 from app.services.slug import unique_slug
@@ -153,15 +154,8 @@ def update_product(product_id: int, data: ProductIn, db: DB, _: Admin, request: 
     # atualiza variações existentes (mantém o id, que está nos pedidos), cria novas e remove as que saíram
     current = {v.id: v for v in product.variants}
     sent = {v.id for v in data.variants if v.id}
-    removed = [v for v in product.variants if v.id not in sent]
-    if removed:
-        # tamanho que já aparece em pedido não pode sumir do banco (o pedido perderia a referência)
-        ordered = set(db.scalars(select(OrderItem.variant_id).where(OrderItem.variant_id.in_([v.id for v in removed]))))
-        blocked = [v for v in removed if v.id in ordered]
-        if blocked:
-            names = ", ".join(f"{v.size}{' ' + v.color if v.color else ''}" for v in blocked)
-            raise HTTPException(400, f"O tamanho {names} já aparece em pedidos e não pode ser apagado. "
-                                     "Deixe o estoque em 0 para ele sumir da loja.")
+    removed = [v.id for v in product.variants if v.id not in sent]
+    release_from_orders(db, OrderItem.variant_id, removed, "Um dos tamanhos removidos")
     keep = []
     for v in data.variants:
         variant = current.get(v.id) if v.id else None
@@ -175,21 +169,18 @@ def update_product(product_id: int, data: ProductIn, db: DB, _: Admin, request: 
     return serialize_product(product, running_promotions(db))
 
 
-@router.delete("/products/{product_id}")
+@router.delete("/products/{product_id}", status_code=204)
 def delete_product(product_id: int, db: DB, _: Admin, request: Request):
-    """Apaga o produto; se ele já aparece em algum pedido (até cancelado), só tira da loja."""
+    """Apaga o produto. Pedidos encerrados continuam mostrando o que foi comprado (o item guarda uma cópia)."""
     product = db.get(Product, product_id) or _not_found("Produto")
+    request.state.audit_summary = product.name
     if db.scalar(select(func.count()).where(ComboItem.product_id == product_id)):
         raise HTTPException(400, "Este produto faz parte de um combo. Remova-o do combo primeiro.")
-    # antes olhava só o sold_count, que volta a 0 quando o pedido é cancelado: o banco recusava apagar
-    archived = bool(db.scalar(select(func.count()).where(OrderItem.product_id == product_id)))
-    if archived:
-        product.active = False
-    else:
-        db.delete(product)
+    # antes: com um pedido cancelado apontando para o produto, o banco recusava apagar
+    release_from_orders(db, OrderItem.product_id, [product_id], "Este produto")
+    release_from_orders(db, OrderItem.variant_id, [v.id for v in product.variants], "Este produto")
+    db.delete(product)
     db.commit()
-    request.state.audit_summary = product.name + (" · desativado (está em pedidos)" if archived else "")
-    return {"archived": archived}
 
 
 # ---------------------------------------------------------------- imagens
