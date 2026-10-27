@@ -10,11 +10,12 @@ from sqlalchemy.orm import selectinload
 
 from app.core.deps import DB
 from app.core.rate_limit import RateLimiter, client_ip, limit
-from app.models import Banner, BannerPlacement, Category, Combo, ComboItem, Order, Product, ProductVariant
+from app.models import Banner, BannerPlacement, Category, Combo, ComboItem, Coupon, CouponKind, Order, Product, ProductVariant
 from app.schemas.catalog import CategoryOut, ProductFilters, ProductOut, ProductPage
 from app.schemas.marketing import BannerOut, ComboOut, PromotionOut
 from app.schemas.order import OrderIn, OrderOut, QuoteIn, QuoteOut, TrackIn
 from app.schemas.store import PublicSettingsOut
+from app.services.exchange import exchange_text
 from app.services.orders import create_order, expire_if_due, expire_pending_orders
 from app.services.pricing import build_quote, get_settings, running_promotions, serialize_combo, serialize_product
 from app.services.privacy import privacy_text
@@ -52,6 +53,32 @@ def privacy(db: DB, template: bool = False):
     store = get_settings(db)
     use_template = template or not store.privacy_policy.strip()
     return {"text": privacy_text(store, force_template=template), "is_template": use_template}
+
+
+@router.get("/welcome")
+def welcome(db: DB):
+    """Oferta do pop-up de boas-vindas: o cupom escolhido em Configurações, se ainda estiver valendo."""
+    code = get_settings(db).welcome_coupon.strip().upper()
+    coupon = db.scalar(select(Coupon).where(Coupon.code == code)) if code else None
+    if not coupon or not coupon.is_running(datetime.now()):
+        return None
+    if coupon.max_uses is not None and coupon.used_count >= coupon.max_uses:
+        return None
+    if coupon.kind == CouponKind.PERCENT:
+        offer = f"{coupon.value:g}% OFF"
+    elif coupon.kind == CouponKind.FIXED:
+        offer = f"R$ {coupon.value:,.2f} OFF".replace(",", "X").replace(".", ",").replace("X", ".")
+    else:
+        offer = "Frete grátis"
+    return {"code": coupon.code, "offer": offer, "min_order": coupon.min_order}
+
+
+@router.get("/exchange")
+def exchange(db: DB, template: bool = False):
+    """Política de trocas e devoluções (a escrita no painel ou, se vazia ou ?template=1, o modelo padrão)."""
+    store = get_settings(db)
+    use_template = template or not store.exchange_policy.strip()
+    return {"text": exchange_text(store, force_template=template), "is_template": use_template}
 
 
 @router.get("/home")
@@ -180,10 +207,12 @@ def product_detail(slug: str, db: DB):
         serialize_combo(c, promos) for c in _active_combos(db)
         if any(i.product_id == product.id for i in c.items)
     ]
+    guide = product.category.size_guide if product.category else None
     return {
         "product": serialize_product(product, promos),
         "related": [serialize_product(p, promos) for p in related],
         "combos": combos,
+        "size_guide": guide if guide and guide.get("rows") else None,
     }
 
 

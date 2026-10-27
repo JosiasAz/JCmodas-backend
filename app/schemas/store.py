@@ -4,7 +4,7 @@ from typing import Annotated
 from pydantic import BaseModel, EmailStr, Field
 
 from app.schemas.catalog import ORM
-from app.schemas.validators import Instagram, Whatsapp
+from app.schemas.validators import Cnpj, Instagram, Whatsapp
 
 
 class LoginIn(BaseModel):
@@ -90,6 +90,9 @@ class PasswordChange(BaseModel):
 
 class StoreBase(BaseModel):
     store_name: str = Field(min_length=2, max_length=80)
+    legal_name: str = ""
+    cnpj: str = ""
+    exchange_days: int = Field(default=30, ge=7, le=365)
     announcement: str = ""
     whatsapp: str = ""
     instagram: str = ""
@@ -113,11 +116,17 @@ class SettingsIn(StoreBase):
     email: str = Field(default="", max_length=120)
     address: str = Field(default="", max_length=200)
     opening_hours: str = Field(default="", max_length=120)
+    legal_name: str = Field(default="", max_length=120)
+    cnpj: Cnpj = ""
     privacy_policy: str = Field(default="", max_length=30000)
+    exchange_policy: str = Field(default="", max_length=30000)
+    welcome_coupon: str = Field(default="", max_length=30)
 
 
 class SettingsOut(StoreBase, ORM):
     privacy_policy: str = ""
+    exchange_policy: str = ""
+    welcome_coupon: str = ""
 
 
 class PublicSettingsOut(StoreBase, ORM):
@@ -144,6 +153,9 @@ class AuditPage(BaseModel):
 
 class DashboardOut(BaseModel):
     revenue: float
+    # vendas do ano (pagas em diante) para comparar com o teto de faturamento do MEI
+    year_revenue: float = 0
+    mei_limit: float = 0
     orders: int
     average_ticket: float
     new_orders: int

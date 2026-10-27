@@ -40,6 +40,27 @@ def _instagram(value: str) -> str:
     return value.split("?")[0].strip("/").lstrip("@")
 
 
+def _cnpj_digit(base: str) -> str:
+    """Dígito verificador do CNPJ (vale também para o CNPJ com letras, emitido a partir de jul/2026)."""
+    weights = list(range(len(base) - 7, 1, -1)) + list(range(9, 1, -1))
+    total = sum((ord(c) - 48) * w for c, w in zip(base, weights))
+    rest = total % 11
+    return "0" if rest < 2 else str(11 - rest)
+
+
+def _cnpj(value: str) -> str:
+    """Aceita com ou sem pontuação e guarda no formato 00.000.000/0000-00."""
+    raw = re.sub(r"[^0-9A-Za-z]", "", value).upper()
+    if not raw:
+        return ""
+    if not re.fullmatch(r"[0-9A-Z]{12}[0-9]{2}", raw) or len(set(raw)) == 1:
+        raise ValueError("CNPJ inválido: confira os 14 caracteres")
+    first = _cnpj_digit(raw[:12])
+    if raw[12:] != first + _cnpj_digit(raw[:12] + first):
+        raise ValueError("CNPJ inválido: confira os números")
+    return f"{raw[:2]}.{raw[2:5]}.{raw[5:8]}/{raw[8:12]}-{raw[12:]}"
+
+
 def _hex(value: str) -> str:
     if not _HEX.match(value):
         raise ValueError("Cor inválida (use o formato #RRGGBB)")
@@ -51,3 +72,4 @@ Link = Annotated[str, AfterValidator(_link)]
 HexColor = Annotated[str, AfterValidator(_hex)]
 Whatsapp = Annotated[str, AfterValidator(_whatsapp)]
 Instagram = Annotated[str, AfterValidator(_instagram)]
+Cnpj = Annotated[str, AfterValidator(_cnpj)]

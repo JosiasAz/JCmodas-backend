@@ -15,6 +15,8 @@ class Category(Base):
     image: Mapped[str | None] = mapped_column(String(255))
     sort: Mapped[int] = mapped_column(default=0)
     active: Mapped[bool] = mapped_column(default=True)
+    # tabela de medidas mostrada em "Qual meu tamanho?": {"columns": [...], "rows": [[...], ...]}
+    size_guide: Mapped[dict | None] = mapped_column(JSON)
 
     products: Mapped[list["Product"]] = relationship(back_populates="category")
 

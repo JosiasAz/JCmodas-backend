@@ -1,4 +1,6 @@
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Annotated
+
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.schemas.validators import ImageUrl
 
@@ -7,11 +9,27 @@ class ORM(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class SizeGuide(BaseModel):
+    """Tabela de medidas: a 1ª coluna é o tamanho (P, M, G...), as outras são medidas em cm."""
+
+    columns: list[Annotated[str, Field(max_length=30)]] = Field(min_length=2, max_length=5)
+    rows: list[list[Annotated[str, Field(max_length=12)]]] = Field(max_length=12)
+
+    @model_validator(mode="after")
+    def same_width(self):
+        # linhas sem nenhuma medida preenchida são descartadas
+        self.rows = [r for r in self.rows if any(c.strip() for c in r[1:])]
+        if any(len(r) != len(self.columns) for r in self.rows):
+            raise ValueError("Cada linha da tabela de medidas precisa ter uma medida para cada coluna")
+        return self
+
+
 class CategoryIn(BaseModel):
     name: str = Field(min_length=2, max_length=80)
     image: ImageUrl = None
     sort: int = 0
     active: bool = True
+    size_guide: SizeGuide | None = None
 
 
 class CategoryOut(ORM):
@@ -21,6 +39,7 @@ class CategoryOut(ORM):
     image: str | None
     sort: int
     active: bool
+    size_guide: SizeGuide | None = None
     product_count: int = 0
 
 

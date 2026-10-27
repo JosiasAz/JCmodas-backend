@@ -10,7 +10,7 @@ RETENTION_MONTHS = 12
 TEMPLATE_UPDATED = "outubro de 2026"
 
 TEMPLATE = """## Quem somos
-{store_name} ("nós") é a responsável (controladora) pelos dados pessoais tratados nesta loja virtual{address}.
+{store_name} ("nós"){company} é a responsável (controladora) pelos dados pessoais tratados nesta loja virtual{address}.
 Contato para assuntos de privacidade (encarregado): {contact}.
 
 ## Quais dados coletamos
@@ -51,6 +51,17 @@ os dados do checkout. Você pode apagá-los limpando os dados do site no navegad
 Última atualização: {updated}."""
 
 
+def company_id(store: StoreSettings) -> str:
+    """", Fulano de Tal ME, CNPJ 00.000.000/0001-00" (vazio enquanto o lojista não preencher)."""
+    parts = [p for p in (store.legal_name.strip(), f"CNPJ {store.cnpj}" if store.cnpj else "") if p]
+    return ", " + ", ".join(parts) if parts else ""
+
+
+def contact_line(store: StoreSettings) -> str:
+    contacts = [c for c in (store.email, f"WhatsApp {format_phone(store.whatsapp)}" if store.whatsapp else "") if c]
+    return " / ".join(contacts) or "os canais de atendimento informados no site"
+
+
 def format_phone(digits: str) -> str:
     """5592993299773 -> +55 (92) 99329-9773 (números de fora do Brasil ficam só com o +)."""
     if digits.startswith("55") and len(digits) in (12, 13):
@@ -62,11 +73,11 @@ def format_phone(digits: str) -> str:
 def privacy_text(store: StoreSettings, force_template: bool = False) -> str:
     if store.privacy_policy.strip() and not force_template:
         return store.privacy_policy
-    contacts = [c for c in (store.email, f"WhatsApp {format_phone(store.whatsapp)}" if store.whatsapp else "") if c]
     return TEMPLATE.format(
         store_name=store.store_name or "Esta loja",
+        company=company_id(store),
         address=f", com endereço em {store.address}" if store.address else "",
-        contact=" / ".join(contacts) or "os canais de atendimento informados no site",
+        contact=contact_line(store),
         months=RETENTION_MONTHS,
         updated=TEMPLATE_UPDATED,
     )
