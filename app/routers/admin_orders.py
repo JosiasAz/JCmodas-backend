@@ -57,6 +57,19 @@ def update_status(order_id: int, data: OrderStatusIn, db: DB, _: Admin, request:
     return change_status(db, order, data.status)
 
 
+@router.delete("/orders/{order_id}", status_code=204)
+def delete_order(order_id: int, db: DB, _: Admin, request: Request):
+    """Tira do histórico um pedido cancelado. Os demais ficam guardados para o controle de vendas."""
+    order = db.get(Order, order_id)
+    if not order:
+        raise HTTPException(404, "Pedido não encontrado")
+    if order.status != OrderStatus.CANCELED:
+        raise HTTPException(400, "Só pedidos cancelados podem ser removidos do histórico")
+    request.state.audit_summary = f"{order.code} removido (cancelado, total R$ {order.total:.2f})"
+    db.delete(order)
+    db.commit()
+
+
 class AnonymizeIn(BaseModel):
     months: int = Field(ge=1, le=120)
 
