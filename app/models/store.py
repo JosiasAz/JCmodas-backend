@@ -38,7 +38,10 @@ class StoreSettings(Base):
     email: Mapped[str] = mapped_column(String(120), default="")
     address: Mapped[str] = mapped_column(String(200), default="")
     opening_hours: Mapped[str] = mapped_column(String(120), default="")
-    shipping_fee: Mapped[float] = mapped_column(default=0)
+    # faixas de frete: o cliente paga; a loja escolhe a faixa pelo CEP de destino
+    shipping_fee: Mapped[float] = mapped_column(default=0)  # mesma cidade da loja
+    shipping_state_fee: Mapped[float] = mapped_column(default=0, server_default="0")  # mesmo estado
+    shipping_other_fee: Mapped[float] = mapped_column(default=0, server_default="0")  # outros estados
     free_shipping_min: Mapped[float] = mapped_column(default=0)
     pix_discount_percent: Mapped[float] = mapped_column(default=0)
     pix_key: Mapped[str] = mapped_column(String(120), default="")

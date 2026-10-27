@@ -32,6 +32,7 @@ from app.models import (
 from app.schemas.catalog import ProductOut
 from app.schemas.marketing import ComboItemOut, ComboOut
 from app.schemas.order import Discount, QuoteIn, QuoteLine, QuoteOut
+from app.services.shipping import quote_shipping
 
 MIN_INSTALLMENT = 30.0  # valor mínimo de cada parcela no cartão
 
@@ -286,15 +287,26 @@ def build_quote(db: Session, data: QuoteIn) -> QuoteResult:
 
     # --- frete (calculado antes do desconto Pix para não "perder" o frete grátis por causa dele)
     goods_total = max(subtotal - sum(d.amount for d in discounts), 0)
+    ship = quote_shipping(
+        settings,
+        delivery_method=data.delivery_method,
+        goods_total=goods_total,
+        free_shipping_coupon=free_shipping_coupon,
+        dest_cep=data.cep,
+        dest_city=data.city,
+        dest_state=data.state,
+        has_items=bool(resolved),
+    )
+    shipping = ship.amount
     free_shipping_missing = 0.0
-    if data.delivery_method == DeliveryMethod.PICKUP or free_shipping_coupon or not resolved:
-        shipping = 0.0
-    elif settings.free_shipping_min and goods_total >= settings.free_shipping_min:
-        shipping = 0.0
-    else:
-        shipping = settings.shipping_fee
-        if settings.free_shipping_min:
-            free_shipping_missing = money(settings.free_shipping_min - goods_total)
+    if (
+        data.delivery_method != DeliveryMethod.PICKUP
+        and not free_shipping_coupon
+        and resolved
+        and settings.free_shipping_min
+        and (shipping > 0 or ship.pending)
+    ):
+        free_shipping_missing = money(settings.free_shipping_min - goods_total)
 
     # --- Pix
     if data.payment_method == PaymentMethod.PIX and settings.pix_discount_percent and goods_total:
@@ -310,6 +322,8 @@ def build_quote(db: Session, data: QuoteIn) -> QuoteResult:
         discounts=discounts,
         discount_total=discount_total,
         shipping=money(shipping),
+        shipping_pending=ship.pending,
+        shipping_note=ship.note,
         total=total,
         coupon_code=coupon.code if coupon else None,
         coupon_message=coupon_message,
@@ -318,4 +332,4 @@ def build_quote(db: Session, data: QuoteIn) -> QuoteResult:
         max_installments=max(1, min(settings.max_installments, int(total // MIN_INSTALLMENT))),
         can_checkout=can_checkout,
     )
-    return QuoteResult(quote=quote, lines=resolved, coupon=coupon)
+    return QuoteResult(quote=quote, lines=resolved, coupon=coupon)  # quote já inclui o frete do CEP

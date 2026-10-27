@@ -4,6 +4,7 @@ Se o lojista ainda não escreveu a dele em Configurações, a vitrine mostra est
 preenchido com os dados da loja (nome, endereço e contato). O lojista não precisa mexer em nada.
 """
 from app.models import StoreSettings
+from app.services.shipping import format_cnpj
 
 # pedidos entregues/cancelados há mais tempo que isso perdem os dados pessoais (limpeza automática diária)
 RETENTION_MONTHS = 12
@@ -53,7 +54,8 @@ os dados do checkout. Você pode apagá-los limpando os dados do site no navegad
 
 def company_id(store: StoreSettings) -> str:
     """", Fulano de Tal ME, CNPJ 00.000.000/0001-00" (vazio enquanto o lojista não preencher)."""
-    parts = [p for p in (store.legal_name.strip(), f"CNPJ {store.cnpj}" if store.cnpj else "") if p]
+    cnpj = format_cnpj(store.cnpj)
+    parts = [p for p in (store.legal_name.strip(), f"CNPJ {cnpj}" if cnpj else "") if p]
     return ", " + ", ".join(parts) if parts else ""
 
 

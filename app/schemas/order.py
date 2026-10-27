@@ -25,6 +25,10 @@ class QuoteIn(BaseModel):
     coupon_code: str | None = Field(default=None, max_length=30)
     delivery_method: DeliveryMethod = DeliveryMethod.DELIVERY
     payment_method: PaymentMethod = PaymentMethod.PIX
+    # CEP/cidade/UF do cliente: o frete só fecha quando o destino existe
+    cep: str | None = Field(default=None, max_length=10)
+    city: str | None = Field(default=None, max_length=80)
+    state: str | None = Field(default=None, max_length=2)
 
 
 class QuoteLine(BaseModel):
@@ -51,6 +55,8 @@ class QuoteOut(BaseModel):
     discounts: list[Discount]
     discount_total: float
     shipping: float
+    shipping_pending: bool = False
+    shipping_note: str | None = None
     total: float
     coupon_code: str | None = None
     coupon_message: str | None = None

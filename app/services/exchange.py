@@ -6,6 +6,7 @@ não dependem da loja; o prazo para troca de tamanho é escolhido em Configuraç
 """
 from app.models import StoreSettings
 from app.services.privacy import TEMPLATE_UPDATED, contact_line
+from app.services.shipping import format_cnpj
 
 REFUND_DAYS = 10
 
@@ -42,9 +43,10 @@ Fale com a gente por {contact} com o código do pedido (ele está na confirmaç�
 def exchange_text(store: StoreSettings, force_template: bool = False) -> str:
     if store.exchange_policy.strip() and not force_template:
         return store.exchange_policy
+    cnpj = format_cnpj(store.cnpj)
     seller = ", ".join(p for p in (
         store.legal_name.strip() or store.store_name,
-        f"CNPJ {store.cnpj}" if store.cnpj else "",
+        f"CNPJ {cnpj}" if cnpj else "",
         store.address,
     ) if p)
     return TEMPLATE.format(

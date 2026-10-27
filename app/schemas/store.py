@@ -1,10 +1,11 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.schemas.catalog import ORM
 from app.schemas.validators import Cnpj, Instagram, Whatsapp
+from app.services.shipping import format_cnpj
 
 
 class LoginIn(BaseModel):
@@ -100,6 +101,8 @@ class StoreBase(BaseModel):
     address: str = ""
     opening_hours: str = ""
     shipping_fee: float = Field(ge=0)
+    shipping_state_fee: float = Field(default=0, ge=0)
+    shipping_other_fee: float = Field(default=0, ge=0)
     free_shipping_min: float = Field(ge=0)
     pix_discount_percent: float = Field(ge=0, lt=100)
     pix_key: str = ""
@@ -128,9 +131,19 @@ class SettingsOut(StoreBase, ORM):
     exchange_policy: str = ""
     welcome_coupon: str = ""
 
+    @field_validator("cnpj", mode="before")
+    @classmethod
+    def _cnpj_out(cls, value: str | None) -> str:
+        return format_cnpj(value or "")
+
 
 class PublicSettingsOut(StoreBase, ORM):
     """O que a vitrine recebe (sem a política de privacidade, que tem rota própria)."""
+
+    @field_validator("cnpj", mode="before")
+    @classmethod
+    def _cnpj_out(cls, value: str | None) -> str:
+        return format_cnpj(value or "")
 
 
 class AuditOut(ORM):
