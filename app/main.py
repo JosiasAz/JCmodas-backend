@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 
@@ -92,6 +93,8 @@ app.add_middleware(
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Authorization", "Content-Type"],
 )
+# JSON da vitrine (/api/home, /api/products) chega comprimido no 4G; imagens já comprimidas ficam de fora
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 
 ACTIONS = {"POST": "criou", "PUT": "alterou", "PATCH": "alterou", "DELETE": "excluiu"}

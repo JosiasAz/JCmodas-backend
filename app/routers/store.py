@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import FileResponse
 from sqlalchemy import or_, select
 from sqlalchemy.orm import selectinload
 
@@ -19,6 +20,7 @@ from app.services.exchange import exchange_text
 from app.services.orders import create_order, expire_if_due, expire_pending_orders
 from app.services.pricing import build_quote, get_settings, running_promotions, serialize_combo, serialize_product
 from app.services.privacy import privacy_text
+from app.services.storage import thumbnail
 
 router = APIRouter(prefix="/api", tags=["Loja"])
 
@@ -40,6 +42,17 @@ def _active_combos(db: DB) -> list[Combo]:
         .options(selectinload(Combo.items).selectinload(ComboItem.product).selectinload(Product.variants))
         .order_by(Combo.id)
     ))
+
+
+PHOTO_NAME = re.compile(r"[0-9a-f]{32}\.(jpg|png|webp)")  # só o nome que save_image gera: nada de "../"
+
+
+@router.get("/img/{width}/{name}", include_in_schema=False)
+def image_thumb(width: int, name: str):
+    path = thumbnail(name, width) if PHOTO_NAME.fullmatch(name) else None
+    if not path:
+        raise HTTPException(404, "Imagem não encontrada")
+    return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
 @router.get("/store", response_model=PublicSettingsOut)
