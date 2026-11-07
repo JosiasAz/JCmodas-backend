@@ -158,6 +158,30 @@ def test_salvar_produto_nao_apaga_venda_feita_com_formulario_aberto():
     assert out.variants[0].stock == 9  # 7 + 2: a venda não sumiu
 
 
+def test_fotos_ficam_no_banco_e_voltam_para_o_disco():
+    import tempfile
+    from pathlib import Path
+
+    from sqlalchemy.orm import sessionmaker
+
+    from app.core.config import settings
+    from app.models import StoredFile
+    from app.services import storage
+
+    db, _, _ = _db()
+    storage.SessionLocal = sessionmaker(bind=db.get_bind())
+    settings.upload_dir = tempfile.mkdtemp()
+    url = storage.save_image(b"foto-jpg", ".jpg")
+    name = url.rsplit("/", 1)[1]
+    (Path(settings.upload_dir) / name).unlink()  # disco do servidor perdido
+    assert storage.local_file(name).read_bytes() == b"foto-jpg"  # volta do banco
+    antiga = "a" * 32 + ".png"
+    (Path(settings.upload_dir) / antiga).write_bytes(b"foto-antiga")  # enviada antes desta mudança
+    assert storage.import_disk_files() == 1
+    assert db.get(StoredFile, antiga).data == b"foto-antiga"
+    assert storage.local_file("../../.env") is None
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

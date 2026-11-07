@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import JSON, ForeignKey, String, Text, func
+from sqlalchemy import JSON, ForeignKey, LargeBinary, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -63,3 +63,12 @@ class ProductVariant(Base):
     stock: Mapped[int] = mapped_column(default=0)
 
     product: Mapped[Product] = relationship(back_populates="variants")
+
+
+class StoredFile(Base):
+    """Fotos enviadas pelo painel. A cópia que vale é a do banco; o disco do servidor é só cache."""
+    __tablename__ = "stored_files"
+
+    name: Mapped[str] = mapped_column(String(64), primary_key=True)  # "<uuid>.jpg", igual à URL /static/uploads/
+    data: Mapped[bytes] = mapped_column(LargeBinary)
+    created_at: Mapped[datetime] = mapped_column(server_default=func.now())

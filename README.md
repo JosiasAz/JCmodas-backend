@@ -103,7 +103,7 @@ app/
 ├── seed/       # criação inicial de dados
 └── main.py     # ponto de entrada da aplicação
 static/
-└── uploads/    # imagens enviadas pelo painel
+└── uploads/    # cache das imagens (a cópia que vale fica no banco)
 ```
 
 ## Principais rotas
@@ -160,7 +160,7 @@ Limitações na Vercel:
    uvicorn app.main:app --proxy-headers --forwarded-allow-ips="127.0.0.1" --workers 1
    ```
 
-3. Mantenha backup do banco de dados e da pasta `static/uploads`.
+3. Backup: as fotos ficam no banco (tabela `stored_files`; `static/uploads` é só cache). O workflow `.github/workflows/backup.yml` cria um snapshot diário do Neon (precisa do secret `NEON_API_KEY`).
 
 Em modo de produção, a API não inicia com configurações padrão inseguras, desativa a documentação
 pública e exige autenticação em duas etapas no painel.

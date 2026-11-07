@@ -4,7 +4,8 @@ from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import FileResponse, JSONResponse
+from sqlalchemy import text
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -17,6 +18,7 @@ from app.seed import seed_if_empty
 from app.services.audit import record, security_log
 from app.services.orders import anonymize_orders, expire_pending_orders
 from app.services.privacy import RETENTION_MONTHS
+from app.services.storage import import_disk_files, local_file
 
 settings.check_production()
 
@@ -56,6 +58,7 @@ async def lifespan(_: FastAPI):
     Base.metadata.create_all(schema_engine)
     migrate()
     seed_if_empty()
+    await run_in_threadpool(import_disk_files)
     task = asyncio.create_task(_expire_loop())
     yield
     task.cancel()
@@ -146,9 +149,24 @@ for module in (store, auth, admin_catalog, admin_marketing, admin_orders, admin_
 
 @app.get("/api/health", tags=["Sistema"])
 def health():
+    # consulta o banco: se ele sumir ou recusar a conexão, o deploy e o monitor percebem na hora
+    try:
+        with SessionLocal() as db:
+            db.execute(text("select 1"))
+    except Exception:
+        return JSONResponse({"status": "erro", "detail": "banco indisponível"}, status_code=503)
     return {"status": "ok"}
 
 
-# fotos enviadas pelo painel, gravadas no disco do servidor
+@app.get("/static/uploads/{name}", include_in_schema=False)
+def uploaded_file(name: str):
+    """Fotos do painel: vêm do cache em disco e, se faltarem lá, do banco."""
+    path = local_file(name)
+    if path is None:
+        return JSONResponse({"detail": "Not Found"}, status_code=404)
+    return FileResponse(path)
+
+
+# o resto de /static (imagens de exemplo do seed) continua vindo do disco
 Path(settings.upload_dir).mkdir(parents=True, exist_ok=True)
 app.mount("/static", StaticFiles(directory="static"), name="static")
