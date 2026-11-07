@@ -18,7 +18,7 @@ from app.schemas.marketing import BannerOut, ComboOut, PromotionOut
 from app.schemas.order import OrderIn, OrderOut, QuoteIn, QuoteOut, TrackIn
 from app.schemas.store import PublicSettingsOut
 from app.services.exchange import exchange_text
-from app.services.orders import create_order, expire_if_due, expire_pending_orders
+from app.services.orders import client_ref, create_order, expire_if_due, expire_pending_orders
 from app.services.pricing import build_quote, get_settings, running_promotions, serialize_combo, serialize_product
 from app.services.privacy import privacy_text
 from app.services.storage import thumbnail
@@ -37,12 +37,14 @@ def _product_query():
 
 
 def _active_combos(db: DB) -> list[Combo]:
-    return list(db.scalars(
+    combos = db.scalars(
         select(Combo)
         .where(Combo.active)
         .options(selectinload(Combo.items).selectinload(ComboItem.product).selectinload(Product.variants))
         .order_by(Combo.id)
-    ))
+    )
+    # combo com peça escondida da loja some da vitrine (não pode ser comprado e não deve expor a peça)
+    return [c for c in combos if all(i.product.active for i in c.items)]
 
 
 PHOTO_NAME = re.compile(r"[0-9a-f]{32}\.(jpg|png|webp)")  # só o nome que save_image gera: nada de "../"
@@ -272,9 +274,9 @@ def quote(data: QuoteIn, db: DB, request: Request):
 
 # pedidos reservam estoque: limite baixo evita que alguém "trave" a loja com pedidos falsos
 @router.post("/orders", response_model=OrderOut, status_code=201, dependencies=[Depends(limit(5, 10 * 60))])
-def place_order(data: OrderIn, db: DB):
+def place_order(data: OrderIn, db: DB, request: Request):
     expire_pending_orders(db)  # libera o estoque preso em pedidos vencidos antes de reservar
-    return create_order(db, data)
+    return create_order(db, data, client_ref(client_ip(request)))
 
 
 # POST com corpo JSON: código e telefone não ficam na URL (nem nos logs de acesso/proxy)

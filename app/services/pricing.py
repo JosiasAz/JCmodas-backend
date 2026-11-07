@@ -304,6 +304,9 @@ def build_quote(db: Session, data: QuoteIn) -> QuoteResult:
     if data.delivery_method == DeliveryMethod.PICKUP and not settings.pickup_enabled:
         can_checkout = False
         ship = ShippingQuote(0.0, True, "Retirada na loja indisponível. Escolha entrega.")
+    # entrega sem CEP válido: o frete não fecha, então o pedido também não (senão sairia com frete 0)
+    if data.delivery_method == DeliveryMethod.DELIVERY and ship.pending:
+        can_checkout = False
     free_shipping_missing = 0.0
     if (
         data.delivery_method != DeliveryMethod.PICKUP

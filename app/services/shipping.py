@@ -118,29 +118,23 @@ def classify(
     dest_city: str | None,
     dest_state: str | None,
 ) -> str | None:
-    """'local' | 'state' | 'other'. None se ainda não dá para saber o destino."""
-    # o CEP manda: estado/cidade digitados não podem baratear o frete de quem está em outro lugar
-    cep_uf = uf_from_cep(dest_cep)
-    dest_uf = cep_uf or (dest_state or "").strip().upper()
-    if not dest_uf and not (dest_city or "").strip() and len(digits_cep(dest_cep)) < 8:
+    """'local' | 'state' | 'other'. None enquanto não houver CEP completo (8 dígitos).
+
+    Só o CEP decide a faixa: estado/cidade digitados não podem baratear o frete de quem está em
+    outro lugar (dest_state fica na assinatura só por compatibilidade e é ignorado).
+    """
+    cep = digits_cep(dest_cep)
+    if len(cep) != 8:
         return None
-    if not dest_uf:
-        dest_uf = uf_from_cep(dest_cep)
-    if not dest_uf:
+    dest_uf = uf_from_cep(cep)
+    if not dest_uf or origin is None or dest_uf != origin.state:
         return "other"
-    if origin is None:
-        return "other"
-    if dest_uf != origin.state:
-        return "other"
-    # mesmo estado: cidade só entra se os dois lados tiverem nome
-    # e, com CEP completo, se ele for da mesma região postal da loja (3 primeiros dígitos)
+    origin_cep = digits_cep(origin.cep)
+    # mesmo estado: o nome da cidade só vale se o CEP for da mesma região postal da loja (3 dígitos)
     # shortcut: 3 dígitos ≈ cidade nas capitais; em cidades pequenas a região pode juntar vizinhas
-    same_region = len(digits_cep(dest_cep)) < 8 or digits_cep(dest_cep)[:3] == digits_cep(origin.cep)[:3]
-    if dest_city and origin.city and _norm(dest_city) == _norm(origin.city) and same_region:
+    if dest_city and origin.city and _norm(dest_city) == _norm(origin.city) and cep[:3] == origin_cep[:3]:
         return "local"
-    origin_prefix = digits_cep(origin.cep)[:5]
-    dest_prefix = digits_cep(dest_cep)[:5]
-    if origin_prefix and dest_prefix and origin_prefix == dest_prefix:
+    if origin_cep[:5] and cep[:5] == origin_cep[:5]:
         return "local"
     return "state"
 

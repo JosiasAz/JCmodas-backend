@@ -1,3 +1,5 @@
+import hashlib
+import hmac
 import re
 import secrets
 import string
@@ -6,10 +8,11 @@ from collections import Counter
 from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
-from sqlalchemy import or_, select, update
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.orm import Session
 
-from app.models import Coupon, Order, OrderItem, OrderStatus, ProductVariant
+from app.core.config import settings
+from app.models import Coupon, Order, OrderItem, OrderStatus, Product, ProductVariant
 from app.schemas.order import OrderIn
 from app.services.audit import record
 from app.services.pricing import build_quote, get_settings
@@ -34,10 +37,26 @@ def _new_code(db: Session) -> str:
             return code
 
 
-def create_order(db: Session, data: OrderIn) -> Order:
+def client_ref(ip: str) -> str:
+    """Identifica o visitante sem guardar o IP: HMAC com a chave secreta da API."""
+    return hmac.new(settings.secret_key.encode(), ip.encode(), hashlib.sha256).hexdigest()[:16]
+
+
+def create_order(db: Session, data: OrderIn, ref: str = "") -> Order:
     if data.website:
         # honeypot preenchido: robô. Resposta genérica para não ensinar o truque.
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Não foi possível concluir o pedido. Tente novamente.")
+
+    # o telefone é digitado pelo cliente (dá para trocar a cada pedido); o visitante (IP) não
+    # shortcut: contar e inserir não é atômico; pedidos simultâneos do mesmo IP podem passar de 3
+    # (o limite de 5 pedidos/10 min por IP segura o resto)
+    if ref and db.scalar(
+        select(func.count()).where(Order.status == OrderStatus.NEW, Order.client_ref == ref)
+    ) >= MAX_OPEN_ORDERS_PER_PHONE:
+        raise HTTPException(
+            status.HTTP_429_TOO_MANY_REQUESTS,
+            "Você já tem pedidos aguardando pagamento. Conclua-os ou fale com a loja pelo WhatsApp.",
+        )
 
     # um mesmo telefone não segura estoque com vários pedidos sem pagar
     phone = _digits(data.phone)[-8:]
@@ -66,6 +85,7 @@ def create_order(db: Session, data: OrderIn) -> Order:
         shipping=quote.shipping,
         total=quote.total,
         coupon_code=quote.coupon_code,
+        client_ref=ref,
     )
 
     # baixa de estoque atômica: o UPDATE só acontece se ainda houver saldo. Assim, dois clientes
@@ -119,30 +139,44 @@ def create_order(db: Session, data: OrderIn) -> Order:
 
 
 def change_status(db: Session, order: Order, new_status: OrderStatus) -> Order:
-    if order.status == OrderStatus.CANCELED and new_status != OrderStatus.CANCELED:
+    if order.status == new_status:
+        return order
+    # a troca de status é "reivindicada" no banco (como na expiração): se outro pedido ao mesmo tempo
+    # já cancelou, este não muda nada e o estoque não volta duas vezes
+    changed = db.execute(
+        update(Order).where(Order.id == order.id, Order.status != OrderStatus.CANCELED)
+        .values(status=new_status)
+    ).rowcount
+    if not changed:
+        db.rollback()
+        db.refresh(order)
+        if new_status == OrderStatus.CANCELED:
+            return order  # já estava cancelado: nada a fazer
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Pedido cancelado não pode ser reaberto")
-    if new_status == OrderStatus.CANCELED and order.status != OrderStatus.CANCELED:
+    if new_status == OrderStatus.CANCELED:
         _return_stock(db, order)
-    order.status = new_status
     db.commit()
     db.refresh(order)
     return order
 
 
 def _return_stock(db: Session, order: Order) -> None:
-    """Devolve ao estoque as peças de um pedido cancelado."""
+    """Devolve ao estoque as peças de um pedido cancelado.
+
+    UPDATE relativo (stock = stock + qtd) no banco: não sobrescreve uma venda feita no mesmo instante.
+    """
     for item in order.items:
-        if item.variant_id:
-            variant = db.get(ProductVariant, item.variant_id)
-            if variant:
-                variant.stock += item.quantity
-                variant.product.sold_count = max(variant.product.sold_count - item.quantity, 0)
-        elif item.combo_id:
-            for variant_id in _combo_variant_ids(item):
-                variant = db.get(ProductVariant, variant_id)
-                if variant:
-                    variant.stock += item.quantity
-                    variant.product.sold_count = max(variant.product.sold_count - item.quantity, 0)
+        variant_ids = [item.variant_id] if item.variant_id else _combo_variant_ids(item) if item.combo_id else []
+        for variant_id in variant_ids:
+            product_id = db.scalar(
+                update(ProductVariant).where(ProductVariant.id == variant_id)
+                .values(stock=ProductVariant.stock + item.quantity).returning(ProductVariant.product_id)
+            )
+            if product_id is not None:
+                db.execute(
+                    update(Product).where(Product.id == product_id)
+                    .values(sold_count=case((Product.sold_count > item.quantity, Product.sold_count - item.quantity), else_=0))
+                )
 
 
 def _combo_variant_ids(item: OrderItem) -> list[int]:
@@ -210,7 +244,7 @@ def anonymize_orders(db: Session, months: int) -> int:
         )
     ).all()
     for o in orders:
-        o.customer_name, o.phone, o.email, o.notes = ANONYMOUS, "", None, ""
+        o.customer_name, o.phone, o.email, o.notes, o.client_ref = ANONYMOUS, "", None, "", ""
         o.cep = o.street = o.number = o.complement = o.district = o.city = o.state = None
     db.commit()
     return len(orders)

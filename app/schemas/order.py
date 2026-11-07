@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 
 from pydantic import BaseModel, EmailStr, Field, model_validator
@@ -93,6 +94,8 @@ class OrderIn(QuoteIn):
             missing = [f for f in ("cep", "street", "number", "district", "city", "state") if not getattr(self, f)]
             if missing:
                 raise ValueError("Preencha o endereço completo para entrega")
+            if len(re.sub(r"\D", "", self.cep)) != 8:
+                raise ValueError("CEP inválido: informe os 8 números")
         return self
 
 
