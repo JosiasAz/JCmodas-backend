@@ -14,7 +14,7 @@ from app.services.catalog_links import release_from_orders
 from app.schemas.catalog import CategoryIn, CategoryOut, ProductIn, ProductOut
 from app.services.pricing import running_promotions, serialize_product
 from app.services.slug import unique_slug
-from app.services.storage import save_image
+from app.services.storage import FILE_NAME, remove_cached, save_image
 
 router = APIRouter(prefix="/api/admin", tags=["Painel - Catálogo"])
 
@@ -203,17 +203,36 @@ def delete_product(product_id: int, db: DB, _: Admin, request: Request):
 # ---------------------------------------------------------------- imagens
 
 
-@router.get("/uploads")
-def list_uploads(db: DB, _: Admin):
-    """Fotos já salvas no banco, mais novas primeiro, para reaproveitar sem enviar de novo."""
+def _used_images(db: DB) -> set[str]:
     used = {img for imgs in db.scalars(select(Product.images)) for img in (imgs or [])}
     for model in (Category, Combo, Banner):
         used.update(db.scalars(select(model.image).where(model.image.is_not(None))))
+    return used
+
+
+@router.get("/uploads")
+def list_uploads(db: DB, _: Admin):
+    """Fotos já salvas no banco, mais novas primeiro, para reaproveitar sem enviar de novo."""
+    used = _used_images(db)
     rows = db.execute(select(StoredFile.name, StoredFile.created_at).order_by(StoredFile.created_at.desc()))
     return [
         {"url": f"/static/uploads/{name}", "created_at": created, "in_use": f"/static/uploads/{name}" in used}
         for name, created in rows
     ]
+
+
+@router.delete("/uploads/{name}", status_code=204)
+def delete_upload(name: str, db: DB, _: Admin, request: Request):
+    """Apaga uma foto salva (do banco e do cache em disco). Foto em uso na loja não pode ser apagada."""
+    stored = db.get(StoredFile, name) if FILE_NAME.fullmatch(name) else None
+    if not stored:
+        _not_found("Foto")
+    if f"/static/uploads/{name}" in _used_images(db):
+        raise HTTPException(409, "Esta foto está em uso na loja. Tire ela do produto, banner, categoria ou combo antes.")
+    request.state.audit_summary = name
+    db.delete(stored)
+    db.commit()
+    remove_cached(name)
 
 
 @router.post("/uploads", dependencies=[Depends(limit(30, 60))])

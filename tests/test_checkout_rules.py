@@ -183,6 +183,17 @@ def test_fotos_ficam_no_banco_e_voltam_para_o_disco():
     from app.routers.admin_catalog import list_uploads
     lista = {f["url"]: f["in_use"] for f in list_uploads(db, None)}
     assert lista == {url: False, "/static/uploads/" + antiga: False}
+    from app.routers.admin_catalog import delete_upload
+    delete_upload(antiga, db, None, SimpleNamespace(state=SimpleNamespace()))
+    assert db.get(StoredFile, antiga) is None and not (Path(settings.upload_dir) / antiga).exists()
+    assert storage.import_disk_files() == 0  # não volta para o banco no próximo início
+    db.add(Product(name="Kit", slug="kit-foto", price=1, images=[url]))
+    db.commit()
+    try:
+        delete_upload(name, db, None, SimpleNamespace(state=SimpleNamespace()))
+        raise AssertionError("apagou foto em uso")
+    except HTTPException as e:
+        assert e.status_code == 409
 
 
 if __name__ == "__main__":

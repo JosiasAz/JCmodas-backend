@@ -51,6 +51,14 @@ def local_file(name: str) -> Path | None:
     return path
 
 
+def remove_cached(name: str) -> None:
+    """Apaga a foto e as miniaturas do disco (senão import_disk_files a traria de volta ao banco)."""
+    folder = Path(settings.upload_dir)
+    (folder / name).unlink(missing_ok=True)
+    for width in THUMB_WIDTHS:
+        (folder / "thumbs" / str(width) / f"{Path(name).stem}.webp").unlink(missing_ok=True)
+
+
 def import_disk_files() -> int:
     """Copia para o banco as fotos que só existem no disco (as enviadas antes de as fotos irem para o banco)."""
     folder = Path(settings.upload_dir)
