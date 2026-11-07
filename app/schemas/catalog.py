@@ -48,6 +48,9 @@ class VariantIn(BaseModel):
     size: str = Field(min_length=1, max_length=10)
     color: str | None = Field(default=None, max_length=40)
     stock: int = Field(ge=0, default=0)
+    # estoque que o painel mostrava ao abrir o produto: o servidor aplica só a diferença,
+    # para não apagar uma venda feita enquanto o formulário estava aberto
+    stock_before: int | None = Field(default=None, ge=0)
 
 
 class VariantOut(ORM):

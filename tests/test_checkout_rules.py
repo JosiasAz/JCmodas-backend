@@ -3,6 +3,8 @@
 Roda sem pytest:  python -m tests.test_checkout_rules   (de dentro da pasta backend)
 Usa um banco SQLite em memória: não toca no jcmoda.db nem no Neon.
 """
+from types import SimpleNamespace
+
 from fastapi import HTTPException
 from sqlalchemy import create_engine, update
 from sqlalchemy.orm import Session
@@ -10,7 +12,9 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database import Base
 from app.models import Combo, ComboItem, Order, OrderItem, OrderStatus, Product, ProductVariant, StoreSettings
+from app.routers.admin_catalog import update_product
 from app.routers.store import _active_combos
+from app.schemas.catalog import ProductIn, VariantIn
 from app.schemas.order import CartLineIn, OrderIn, QuoteIn
 from app.services.orders import change_status, client_ref, create_order
 from app.services.pricing import build_quote
@@ -141,6 +145,17 @@ def test_limite_de_pedidos_abertos_por_visitante():
     except HTTPException as e:
         assert e.status_code == 429
     assert client_ref("203.0.113.7") == ref and client_ref("203.0.113.8") != ref
+
+
+def test_salvar_produto_nao_apaga_venda_feita_com_formulario_aberto():
+    db, pid, vid = _db()  # estoque 10: o admin abre o formulário e vê 10
+    other = Session(db.get_bind())
+    other.execute(update(ProductVariant).where(ProductVariant.id == vid).values(stock=ProductVariant.stock - 3))
+    other.commit()  # um cliente compra 3 enquanto o formulário está aberto: estoque 7
+    data = ProductIn(name="Camisa", price=100, variants=[VariantIn(id=vid, size="M", stock=12, stock_before=10)])
+    req = SimpleNamespace(state=SimpleNamespace())
+    out = update_product(pid, data, db, None, req)  # admin repôs 2 peças (10 -> 12)
+    assert out.variants[0].stock == 9  # 7 + 2: a venda não sumiu
 
 
 if __name__ == "__main__":

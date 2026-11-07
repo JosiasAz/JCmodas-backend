@@ -4,7 +4,7 @@ from io import BytesIO
 from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
 from PIL import Image, ImageOps
 from starlette.concurrency import run_in_threadpool
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select, update
 from sqlalchemy.orm import selectinload
 
 from app.core.deps import DB, Admin
@@ -137,7 +137,7 @@ def create_product(data: ProductIn, db: DB, _: Admin, request: Request):
     product = Product(
         **data.model_dump(exclude={"variants"}),
         slug=unique_slug(db, Product, data.name),
-        variants=[ProductVariant(**v.model_dump(exclude={"id"})) for v in data.variants],
+        variants=[ProductVariant(**v.model_dump(exclude={"id", "stock_before"})) for v in data.variants],
     )
     db.add(product)
     db.commit()
@@ -159,16 +159,30 @@ def update_product(product_id: int, data: ProductIn, db: DB, _: Admin, request: 
     sent = {v.id for v in data.variants if v.id}
     removed = [v.id for v in product.variants if v.id not in sent]
     release_from_orders(db, OrderItem.variant_id, removed, "Um dos tamanhos removidos")
-    keep = []
+    keep, deltas = [], []
     for v in data.variants:
         variant = current.get(v.id) if v.id else None
         if variant:
-            variant.size, variant.color, variant.stock = v.size, v.color, v.stock
+            variant.size, variant.color = v.size, v.color
+            if v.stock_before is None:
+                variant.stock = v.stock  # cliente antigo (sem stock_before): grava o valor
+            elif v.stock != v.stock_before:
+                deltas.append((variant.id, v.stock - v.stock_before))
         else:
             variant = ProductVariant(size=v.size, color=v.color, stock=v.stock)
         keep.append(variant)
     product.variants = keep
+    for variant_id, delta in deltas:
+        # soma no banco (stock = stock + diferença), nunca abaixo de zero
+        new_stock = ProductVariant.stock + delta
+        db.execute(
+            update(ProductVariant).where(ProductVariant.id == variant_id)
+            .values(stock=case((new_stock < 0, 0), else_=new_stock))
+            .execution_options(synchronize_session=False)
+        )
     db.commit()
+    for variant in keep:
+        db.refresh(variant)
     return serialize_product(product, running_promotions(db))
 
 
