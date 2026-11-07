@@ -134,9 +134,12 @@ def read_settings(db: DB, _: Admin):
 def save_settings(data: SettingsIn, db: DB, _: Admin):
     settings = get_settings(db)
     values = data.model_dump()
-    token = (values.pop("melhor_envio_token") or "").strip()
-    if token:  # vazio = manter o token já salvo
-        settings.melhor_envio_token = token
+    secret = (values.pop("melhor_envio_client_secret") or "").strip()
+    if secret:  # vazio = manter o secret já salvo
+        settings.melhor_envio_client_secret = secret
+    if values["melhor_envio_client_id"] != settings.melhor_envio_client_id or secret:
+        # outro aplicativo: a conexão antiga deixa de valer, é preciso conectar de novo
+        settings.melhor_envio_token = settings.melhor_envio_refresh_token = settings.melhor_envio_expires_at = None
     for key, value in values.items():
         setattr(settings, key, value)
     db.commit()

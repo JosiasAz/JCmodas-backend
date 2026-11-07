@@ -121,8 +121,9 @@ class SettingsIn(StoreBase):
     privacy_policy: str = Field(default="", max_length=30000)
     exchange_policy: str = Field(default="", max_length=30000)
     welcome_coupon: str = Field(default="", max_length=30)
-    # vazio/ausente = mantém o token já salvo (o painel não recebe o token de volta para reenviar)
-    melhor_envio_token: str | None = Field(default=None, max_length=2000)
+    # aplicativo do Melhor Envio (Integrações > Área Dev.); secret vazio/ausente = mantém o já salvo
+    melhor_envio_client_id: str = Field(default="", max_length=40, pattern=r"^\d*$")
+    melhor_envio_client_secret: str | None = Field(default=None, max_length=500)
     melhor_envio_sandbox: bool = False
     package_width_cm: int = Field(default=20, ge=1, le=100)
     package_height_cm: int = Field(default=5, ge=1, le=100)
@@ -135,18 +136,22 @@ class SettingsOut(StoreBase, ORM):
     exchange_policy: str = ""
     welcome_coupon: str = ""
     melhor_envio_sandbox: bool = False
+    melhor_envio_client_id: str = ""
+    melhor_envio_expires_at: datetime | None = None
     package_width_cm: int = 20
     package_height_cm: int = 5
     package_length_cm: int = 28
     package_weight_g: int = 400
-    has_melhor_envio_token: bool = False
+    # segredo e tokens nunca saem da API: o painel só sabe se existem
+    has_melhor_envio_secret: bool = False
+    melhor_envio_connected: bool = False
 
     @model_validator(mode="before")
     @classmethod
-    def _token_flag(cls, obj):
-        # o token em si nunca sai da API: o painel só sabe se já existe
+    def _secret_flags(cls, obj):
         if hasattr(obj, "melhor_envio_token"):
-            obj.has_melhor_envio_token = bool(obj.melhor_envio_token)
+            obj.has_melhor_envio_secret = bool(obj.melhor_envio_client_secret)
+            obj.melhor_envio_connected = bool(obj.melhor_envio_token)
         return obj
 
     @field_validator("cnpj", mode="before")

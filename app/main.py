@@ -13,11 +13,13 @@ from starlette.concurrency import run_in_threadpool
 
 from app.core.config import settings
 from app.core.database import Base, SessionLocal, migrate, schema_engine
-from app.routers import admin_catalog, admin_marketing, admin_orders, admin_users, auth, store
+from app.routers import admin_catalog, admin_marketing, admin_orders, admin_users, auth, melhor_envio, store
 from app.seed import seed_if_empty
 from app.services.audit import record, security_log
 from app.services.orders import anonymize_orders, expire_pending_orders
 from app.services.privacy import RETENTION_MONTHS
+from app.services.pricing import get_settings
+from app.services.shipping import ShippingUnavailable, refresh_if_needed
 from app.services.storage import import_disk_files, local_file
 
 settings.check_production()
@@ -34,6 +36,14 @@ def _expire_once() -> None:
     global _last_cleanup
     with SessionLocal() as db:
         expire_pending_orders(db)
+        # Melhor Envio: o token vale 30 dias; renova sozinho quando faltam menos de 7
+        try:
+            if refresh_if_needed(get_settings(db)):
+                db.commit()
+                record("renovou", entity="settings", summary="token do Melhor Envio renovado")
+        except ShippingUnavailable:
+            db.rollback()
+            security_log.warning("não deu para renovar o token do Melhor Envio; conecte de novo no painel")
         # LGPD: uma vez por dia apaga os dados pessoais de pedidos encerrados há mais de 12 meses
         now = time.monotonic()
         if not _last_cleanup or now - _last_cleanup >= CLEANUP_EVERY_SECONDS:
@@ -143,7 +153,7 @@ async def security_headers(request: Request, call_next):
     return response
 
 
-for module in (store, auth, admin_catalog, admin_marketing, admin_orders, admin_users):
+for module in (store, auth, admin_catalog, admin_marketing, admin_orders, admin_users, melhor_envio):
     app.include_router(module.router)
 
 

@@ -11,8 +11,10 @@ import logging
 import re
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 log = logging.getLogger("app.shipping")
@@ -111,11 +113,62 @@ def _fetch_options(token: str, sandbox: bool, contact: str, body: dict[str, Any]
     return sorted(options, key=lambda o: (o.price, o.days))
 
 
+# ---------------------------------------------------------------- conexão (OAuth do Melhor Envio)
+# O token vale 30 dias e o refresh_token 45: a tarefa de fundo (main.py) renova antes de vencer.
+SCOPE = "shipping-calculate"
+REFRESH_BEFORE = timedelta(days=7)
+
+
+def authorize_url(settings: Any, state: str, redirect_uri: str) -> str:
+    query = urllib.parse.urlencode({
+        "client_id": settings.melhor_envio_client_id, "redirect_uri": redirect_uri,
+        "response_type": "code", "state": state, "scope": SCOPE,
+    })
+    return f"{API[bool(settings.melhor_envio_sandbox)]}/oauth/authorize?{query}"
+
+
+def _token_request(settings: Any, extra: dict[str, Any]) -> None:
+    """Troca o code (ou o refresh_token) por um token novo e grava em settings (quem chama faz o commit)."""
+    body = {"client_id": int(settings.melhor_envio_client_id), "client_secret": settings.melhor_envio_client_secret, **extra}
+    req = urllib.request.Request(
+        f"{API[bool(settings.melhor_envio_sandbox)]}/oauth/token", data=json.dumps(body).encode(), method="POST",
+        headers={"Accept": "application/json", "Content-Type": "application/json",
+                 "User-Agent": f"JC Moda ({settings.email or 'contato@jcmoda.com.br'})"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=15) as res:
+            data = json.loads(res.read())
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        log.warning("Melhor Envio recusou o token: %s", exc)
+        raise ShippingUnavailable from exc
+    if not data.get("access_token"):
+        raise ShippingUnavailable
+    settings.melhor_envio_token = data["access_token"]
+    settings.melhor_envio_refresh_token = data.get("refresh_token") or settings.melhor_envio_refresh_token
+    settings.melhor_envio_expires_at = datetime.now(UTC).replace(tzinfo=None) + timedelta(
+        seconds=int(data.get("expires_in") or 2592000))
+    _cache.clear()
+
+
+def exchange_code(settings: Any, code: str, redirect_uri: str) -> None:
+    _token_request(settings, {"grant_type": "authorization_code", "code": code, "redirect_uri": redirect_uri})
+
+
+def refresh_if_needed(settings: Any) -> bool:
+    """Renova o token quando faltam menos de 7 dias. True se renovou."""
+    expires = settings.melhor_envio_expires_at
+    if not settings.melhor_envio_refresh_token or (expires and expires - datetime.now(UTC).replace(tzinfo=None) > REFRESH_BEFORE):
+        return False
+    _token_request(settings, {"grant_type": "refresh_token", "refresh_token": settings.melhor_envio_refresh_token})
+    return True
+
+
 def shipping_options(settings: Any, dest_cep: str, items: list[tuple[int, float]]) -> list[ShippingOption]:
     """Opções reais de entrega para o carrinho (items = [(quantidade, preço unitário)])."""
     origin = parse_origin(settings.address)
     token = (getattr(settings, "melhor_envio_token", None) or "").strip()
-    if not origin or not token:
+    expires = getattr(settings, "melhor_envio_expires_at", None)
+    if not origin or not token or (expires and expires < datetime.now(UTC).replace(tzinfo=None)):
         raise ShippingUnavailable
     sandbox = bool(getattr(settings, "melhor_envio_sandbox", False))
     box = (settings.package_width_cm, settings.package_height_cm, settings.package_length_cm, settings.package_weight_g)

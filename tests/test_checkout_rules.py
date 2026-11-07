@@ -249,6 +249,52 @@ def test_fotos_ficam_no_banco_e_voltam_para_o_disco():
         assert e.status_code == 409
 
 
+
+
+def test_conexao_melhor_envio_e_renovacao():
+    import io
+    import json
+    import urllib.request
+    from datetime import datetime, timedelta
+
+    from app.routers import melhor_envio
+
+    db, _, _ = _db()
+    s = db.get(StoreSettings, 1)
+    s.melhor_envio_client_id, s.melhor_envio_client_secret, s.melhor_envio_token = "123", "segredo", None
+    db.commit()
+    pedidos = []
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def urlopen_falso(req, timeout):
+        pedidos.append(json.loads(req.data))
+        return Resp(json.dumps({"access_token": f"tok{len(pedidos)}", "refresh_token": f"ref{len(pedidos)}",
+                                "expires_in": 2592000}).encode())
+
+    req = SimpleNamespace(url_for=lambda name: "https://api.teste/api/melhor-envio/callback")
+    original, urllib.request.urlopen = urllib.request.urlopen, urlopen_falso
+    try:
+        link = melhor_envio.connect(req, db, None)["url"]
+        assert "client_id=123" in link and "scope=shipping-calculate" in link
+        estado = db.get(StoreSettings, 1).melhor_envio_state
+        ruim = melhor_envio.callback(req, db, code="abc", state="forjado")  # site falso tentando conectar outra conta
+        assert "melhorenvio=erro" in ruim.headers["location"] and not pedidos
+        ok = melhor_envio.callback(req, db, code="abc", state=estado)
+        assert "melhorenvio=ok" in ok.headers["location"]
+        s = db.get(StoreSettings, 1)
+        assert s.melhor_envio_token == "tok1" and s.melhor_envio_refresh_token == "ref1" and s.melhor_envio_state is None
+        assert pedidos[0]["grant_type"] == "authorization_code" and pedidos[0]["redirect_uri"].endswith("/callback")
+        assert "melhorenvio=erro" in melhor_envio.callback(req, db, code="abc", state=estado).headers["location"]  # 1 uso só
+        assert shipping.refresh_if_needed(s) is False  # ainda faltam 30 dias
+        s.melhor_envio_expires_at = datetime.now() + timedelta(days=3)
+        assert shipping.refresh_if_needed(s) is True and s.melhor_envio_token == "tok2"
+        assert pedidos[1] == {"client_id": 123, "client_secret": "segredo", "grant_type": "refresh_token", "refresh_token": "ref1"}
+    finally:
+        urllib.request.urlopen = original
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_"):

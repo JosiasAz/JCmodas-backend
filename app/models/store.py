@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import JSON, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,8 +45,14 @@ class StoreSettings(Base):
     shipping_state_fee: Mapped[float] = mapped_column(default=0, server_default="0")  # mesmo estado
     shipping_other_fee: Mapped[float] = mapped_column(default=0, server_default="0")  # outros estados
     free_shipping_min: Mapped[float] = mapped_column(default=0)  # acima disso, a opção mais barata é grátis
-    # frete real pelo Melhor Envio (token fica só no banco; o painel nunca recebe de volta)
-    melhor_envio_token: Mapped[str | None] = mapped_column(Text)
+    # frete real pelo Melhor Envio (OAuth: aplicativo criado em Integrações > Área Dev. do Melhor Envio).
+    # Segredo e tokens ficam só no banco; o painel nunca recebe de volta.
+    melhor_envio_client_id: Mapped[str] = mapped_column(String(40), default="", server_default="")
+    melhor_envio_client_secret: Mapped[str | None] = mapped_column(Text)
+    melhor_envio_token: Mapped[str | None] = mapped_column(Text)  # access_token (vale 30 dias)
+    melhor_envio_refresh_token: Mapped[str | None] = mapped_column(Text)  # vale 45 dias; renova o token
+    melhor_envio_expires_at: Mapped[datetime | None]
+    melhor_envio_state: Mapped[str | None] = mapped_column(String(64))  # anti-CSRF da autorização
     melhor_envio_sandbox: Mapped[bool] = mapped_column(default=False, server_default="0")
     # embalagem padrão de UMA peça (cm e gramas): o Melhor Envio junta as peças do pedido
     package_width_cm: Mapped[int] = mapped_column(default=20, server_default="20")
