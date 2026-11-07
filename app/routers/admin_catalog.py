@@ -9,7 +9,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.deps import DB, Admin
 from app.core.rate_limit import limit
-from app.models import Category, ComboItem, OrderItem, Product, ProductVariant
+from app.models import Banner, Category, Combo, ComboItem, OrderItem, Product, ProductVariant, StoredFile
 from app.services.catalog_links import release_from_orders
 from app.schemas.catalog import CategoryIn, CategoryOut, ProductIn, ProductOut
 from app.services.pricing import running_promotions, serialize_product
@@ -201,6 +201,19 @@ def delete_product(product_id: int, db: DB, _: Admin, request: Request):
 
 
 # ---------------------------------------------------------------- imagens
+
+
+@router.get("/uploads")
+def list_uploads(db: DB, _: Admin):
+    """Fotos já salvas no banco, mais novas primeiro, para reaproveitar sem enviar de novo."""
+    used = {img for imgs in db.scalars(select(Product.images)) for img in (imgs or [])}
+    for model in (Category, Combo, Banner):
+        used.update(db.scalars(select(model.image).where(model.image.is_not(None))))
+    rows = db.execute(select(StoredFile.name, StoredFile.created_at).order_by(StoredFile.created_at.desc()))
+    return [
+        {"url": f"/static/uploads/{name}", "created_at": created, "in_use": f"/static/uploads/{name}" in used}
+        for name, created in rows
+    ]
 
 
 @router.post("/uploads", dependencies=[Depends(limit(30, 60))])

@@ -180,6 +180,9 @@ def test_fotos_ficam_no_banco_e_voltam_para_o_disco():
     assert storage.import_disk_files() == 1
     assert db.get(StoredFile, antiga).data == b"foto-antiga"
     assert storage.local_file("../../.env") is None
+    from app.routers.admin_catalog import list_uploads
+    lista = {f["url"]: f["in_use"] for f in list_uploads(db, None)}
+    assert lista == {url: False, "/static/uploads/" + antiga: False}
 
 
 if __name__ == "__main__":
