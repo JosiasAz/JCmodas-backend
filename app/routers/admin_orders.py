@@ -133,7 +133,11 @@ def read_settings(db: DB, _: Admin):
 @router.put("/settings", response_model=SettingsOut)
 def save_settings(data: SettingsIn, db: DB, _: Admin):
     settings = get_settings(db)
-    for key, value in data.model_dump().items():
+    values = data.model_dump()
+    token = (values.pop("melhor_envio_token") or "").strip()
+    if token:  # vazio = manter o token já salvo
+        settings.melhor_envio_token = token
+    for key, value in values.items():
         setattr(settings, key, value)
     db.commit()
     return settings

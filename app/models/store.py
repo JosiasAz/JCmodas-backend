@@ -42,7 +42,15 @@ class StoreSettings(Base):
     shipping_fee: Mapped[float] = mapped_column(default=0)  # mesma cidade da loja
     shipping_state_fee: Mapped[float] = mapped_column(default=0, server_default="0")  # mesmo estado
     shipping_other_fee: Mapped[float] = mapped_column(default=0, server_default="0")  # outros estados
-    free_shipping_min: Mapped[float] = mapped_column(default=0)
+    free_shipping_min: Mapped[float] = mapped_column(default=0)  # acima disso, a opção mais barata é grátis
+    # frete real pelo Melhor Envio (token fica só no banco; o painel nunca recebe de volta)
+    melhor_envio_token: Mapped[str | None] = mapped_column(Text)
+    melhor_envio_sandbox: Mapped[bool] = mapped_column(default=False, server_default="0")
+    # embalagem padrão de UMA peça (cm e gramas): o Melhor Envio junta as peças do pedido
+    package_width_cm: Mapped[int] = mapped_column(default=20, server_default="20")
+    package_height_cm: Mapped[int] = mapped_column(default=5, server_default="5")
+    package_length_cm: Mapped[int] = mapped_column(default=28, server_default="28")
+    package_weight_g: Mapped[int] = mapped_column(default=400, server_default="400")
     pix_discount_percent: Mapped[float] = mapped_column(default=0)
     pix_key: Mapped[str] = mapped_column(String(120), default="")
     max_installments: Mapped[int] = mapped_column(default=1)

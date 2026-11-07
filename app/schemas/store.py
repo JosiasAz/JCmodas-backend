@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Annotated
 
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
 
 from app.schemas.catalog import ORM
 from app.schemas.validators import Cnpj, Instagram, Whatsapp
@@ -100,10 +100,7 @@ class StoreBase(BaseModel):
     email: str = ""
     address: str = ""
     opening_hours: str = ""
-    shipping_fee: float = Field(ge=0)
-    shipping_state_fee: float = Field(default=0, ge=0)
-    shipping_other_fee: float = Field(default=0, ge=0)
-    free_shipping_min: float = Field(ge=0)
+    free_shipping_min: float = Field(default=0, ge=0)
     pix_discount_percent: float = Field(ge=0, lt=100)
     pix_key: str = ""
     max_installments: int = Field(ge=1, le=12)
@@ -124,12 +121,33 @@ class SettingsIn(StoreBase):
     privacy_policy: str = Field(default="", max_length=30000)
     exchange_policy: str = Field(default="", max_length=30000)
     welcome_coupon: str = Field(default="", max_length=30)
+    # vazio/ausente = mantém o token já salvo (o painel não recebe o token de volta para reenviar)
+    melhor_envio_token: str | None = Field(default=None, max_length=2000)
+    melhor_envio_sandbox: bool = False
+    package_width_cm: int = Field(default=20, ge=1, le=100)
+    package_height_cm: int = Field(default=5, ge=1, le=100)
+    package_length_cm: int = Field(default=28, ge=1, le=100)
+    package_weight_g: int = Field(default=400, ge=10, le=30000)
 
 
 class SettingsOut(StoreBase, ORM):
     privacy_policy: str = ""
     exchange_policy: str = ""
     welcome_coupon: str = ""
+    melhor_envio_sandbox: bool = False
+    package_width_cm: int = 20
+    package_height_cm: int = 5
+    package_length_cm: int = 28
+    package_weight_g: int = 400
+    has_melhor_envio_token: bool = False
+
+    @model_validator(mode="before")
+    @classmethod
+    def _token_flag(cls, obj):
+        # o token em si nunca sai da API: o painel só sabe se já existe
+        if hasattr(obj, "melhor_envio_token"):
+            obj.has_melhor_envio_token = bool(obj.melhor_envio_token)
+        return obj
 
     @field_validator("cnpj", mode="before")
     @classmethod

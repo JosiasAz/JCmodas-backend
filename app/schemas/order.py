@@ -30,6 +30,17 @@ class QuoteIn(BaseModel):
     cep: str | None = Field(default=None, max_length=10)
     city: str | None = Field(default=None, max_length=80)
     state: str | None = Field(default=None, max_length=2)
+    # serviço de entrega escolhido (id do Melhor Envio); vazio = o mais barato. O preço vem do servidor.
+    shipping_service: int | None = None
+
+
+class ShippingOptionOut(BaseModel):
+    id: int
+    name: str
+    company: str
+    price: float
+    days: int
+    free: bool = False
 
 
 class QuoteLine(BaseModel):
@@ -58,6 +69,9 @@ class QuoteOut(BaseModel):
     shipping: float
     shipping_pending: bool = False
     shipping_note: str | None = None
+    # opções reais de entrega (Melhor Envio); a escolhida é shipping_service
+    shipping_options: list[ShippingOptionOut] = []
+    shipping_service: int | None = None
     total: float
     coupon_code: str | None = None
     coupon_message: str | None = None
@@ -132,6 +146,7 @@ class OrderOut(ORM):
     subtotal: float
     discount: float
     shipping: float
+    shipping_method: str = ""
     total: float
     coupon_code: str | None
     created_at: datetime

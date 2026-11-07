@@ -295,9 +295,8 @@ def build_quote(db: Session, data: QuoteIn) -> QuoteResult:
         goods_total=goods_total,
         free_shipping_coupon=free_shipping_coupon,
         dest_cep=data.cep,
-        dest_city=data.city,
-        dest_state=data.state,
-        has_items=bool(resolved),
+        items=[(line.quote.quantity, line.quote.unit_price) for line in resolved],
+        service=data.shipping_service,
     )
     shipping = ship.amount
     # retirada desligada no painel: a tela esconde, mas a API também precisa recusar
@@ -313,7 +312,7 @@ def build_quote(db: Session, data: QuoteIn) -> QuoteResult:
         and not free_shipping_coupon
         and resolved
         and settings.free_shipping_min
-        and (shipping > 0 or ship.pending)
+        and goods_total < settings.free_shipping_min
     ):
         free_shipping_missing = money(settings.free_shipping_min - goods_total)
 
@@ -333,6 +332,8 @@ def build_quote(db: Session, data: QuoteIn) -> QuoteResult:
         shipping=money(shipping),
         shipping_pending=ship.pending,
         shipping_note=ship.note,
+        shipping_options=[o.__dict__ for o in ship.options],
+        shipping_service=ship.selected,
         total=total,
         coupon_code=coupon.code if coupon else None,
         coupon_message=coupon_message,

@@ -56,6 +56,8 @@ class Order(Base):
     shipping: Mapped[float] = mapped_column(default=0)
     total: Mapped[float]
     coupon_code: Mapped[str | None] = mapped_column(String(30))
+    # entrega escolhida no checkout, ex.: "Correios SEDEX · chega em até 3 dias úteis"
+    shipping_method: Mapped[str] = mapped_column(String(160), default="", server_default="")
     # HMAC do IP de quem fez o pedido (não o IP em si): limita pedidos não pagos por visitante
     client_ref: Mapped[str] = mapped_column(String(16), default="", server_default="")
 

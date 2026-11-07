@@ -1,52 +1,29 @@
-"""Frete automático pelo CEP do cliente.
+"""Frete real pelo Melhor Envio (Correios, Jadlog...): o cliente escolhe a opção e paga na compra.
 
-O lojista não cobra um valor único para o Brasil inteiro: a loja compara o destino com o
-endereço dela e escolhe a faixa (cidade, estado ou outros estados). Quem compra paga a entrega.
+A loja informa no painel o token do Melhor Envio, o endereço (de onde sai o CEP de origem) e o tamanho
+padrão da embalagem. Sem isso, ou se o Melhor Envio não responder, NÃO há frete: o pedido com entrega
+fica bloqueado. Nunca vira "frete grátis" por falta de configuração.
 """
 from __future__ import annotations
 
+import json
+import logging
 import re
-from dataclasses import dataclass
+import time
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
 from typing import Any
+
+log = logging.getLogger("app.shipping")
 
 # "Rua Massapê, 40 (Loja 2) - São José Operário, Manaus/AM - CEP 69085-000"
 _ADDRESS = re.compile(
     r"^.+, [^,()]+?(?: \([^)]*\))? - (?:.+?, )?([^,]+)/([A-Z]{2}) - CEP (\d{5}-\d{3})$"
 )
-
-# primeiros 5 dígitos do CEP → UF (faixas dos Correios)
-_CEP_UF: list[tuple[int, int, str]] = [
-    (1000, 19999, "SP"),
-    (20000, 28999, "RJ"),
-    (29000, 29999, "ES"),
-    (30000, 39999, "MG"),
-    (40000, 48999, "BA"),
-    (49000, 49999, "SE"),
-    (50000, 56999, "PE"),
-    (57000, 57999, "AL"),
-    (58000, 58999, "PB"),
-    (59000, 59999, "RN"),
-    (60000, 63999, "CE"),
-    (64000, 64999, "PI"),
-    (65000, 65999, "MA"),
-    (66000, 68899, "PA"),
-    (68900, 68999, "AP"),
-    (69000, 69299, "AM"),
-    (69300, 69399, "RR"),
-    (69400, 69899, "AM"),
-    (69900, 69999, "AC"),
-    (70000, 72799, "DF"),
-    (72800, 72999, "GO"),
-    (73000, 73699, "DF"),
-    (73700, 76799, "GO"),
-    (76800, 76999, "RO"),
-    (77000, 77999, "TO"),
-    (78000, 78899, "MT"),
-    (79000, 79999, "MS"),
-    (80000, 87999, "PR"),
-    (88000, 89999, "SC"),
-    (90000, 99999, "RS"),
-]
+API = {False: "https://melhorenvio.com.br", True: "https://sandbox.melhorenvio.com.br"}
+CACHE_SECONDS = 10 * 60  # o checkout recalcula a cada mudança: não consulta o Melhor Envio toda hora
+_cache: dict[tuple, tuple[float, list[ShippingOption]]] = {}
 
 
 def money(value: float) -> float:
@@ -55,17 +32,6 @@ def money(value: float) -> float:
 
 def digits_cep(value: str | None) -> str:
     return re.sub(r"\D", "", value or "")[:8]
-
-
-def uf_from_cep(cep: str | None) -> str | None:
-    raw = digits_cep(cep)
-    if len(raw) < 5:
-        return None
-    prefix = int(raw[:5])
-    for start, end, uf in _CEP_UF:
-        if start <= prefix <= end:
-            return uf
-    return None
 
 
 @dataclass(frozen=True)
@@ -90,53 +56,89 @@ def format_cnpj(value: str | None) -> str:
     return f"{raw[:2]}.{raw[2:5]}.{raw[5:8]}/{raw[8:12]}-{raw[12:]}"
 
 
-def _norm(text: str) -> str:
-    return re.sub(r"\s+", " ", (text or "").strip().casefold())
-
-
 @dataclass(frozen=True)
+class ShippingOption:
+    id: int  # código do serviço no Melhor Envio (ex.: 1 = PAC, 2 = SEDEX)
+    name: str
+    company: str
+    price: float
+    days: int
+    free: bool = False
+
+
+@dataclass
 class ShippingQuote:
     amount: float
-    pending: bool
+    pending: bool  # True: ainda não dá para fechar a entrega (sem CEP, sem configuração ou erro)
     note: str
+    options: list[ShippingOption] = field(default_factory=list)
+    selected: int | None = None
 
 
-def resolve_rates(settings: Any) -> tuple[float, float, float]:
-    """Cidade / estado / outros. 0 nos dois últimos + taxa local > 0: deriva sozinho (loja antiga)."""
-    local = float(settings.shipping_fee or 0)
-    state = float(getattr(settings, "shipping_state_fee", 0) or 0)
-    other = float(getattr(settings, "shipping_other_fee", 0) or 0)
-    if state == 0 and other == 0 and local > 0:
-        state = money(local + 10)
-        other = money(max(local + 22, 29.9))
-    return local, state, other
+class ShippingUnavailable(Exception):
+    pass
 
 
-def classify(
-    origin: Origin | None,
-    dest_cep: str | None,
-    dest_city: str | None,
-    dest_state: str | None,
-) -> str | None:
-    """'local' | 'state' | 'other'. None enquanto não houver CEP completo (8 dígitos).
+def _fetch_options(token: str, sandbox: bool, contact: str, body: dict[str, Any]) -> list[ShippingOption]:
+    req = urllib.request.Request(
+        f"{API[sandbox]}/api/v2/me/shipment/calculate",
+        data=json.dumps(body).encode(),
+        method="POST",
+        headers={
+            "Accept": "application/json",
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {token}",
+            "User-Agent": f"JC Moda ({contact})",  # o Melhor Envio exige nome do app + e-mail de contato
+        },
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=8) as res:
+            data = json.loads(res.read())
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        log.warning("Melhor Envio não respondeu: %s", exc)
+        raise ShippingUnavailable from exc
+    options = []
+    for s in data if isinstance(data, list) else []:
+        price = s.get("custom_price") or s.get("price")
+        if s.get("error") or not price:
+            continue  # serviço indisponível para esse trecho/tamanho
+        options.append(ShippingOption(
+            id=int(s["id"]), name=str(s.get("name", "")), company=str((s.get("company") or {}).get("name", "")),
+            price=money(float(price)), days=int(s.get("custom_delivery_time") or s.get("delivery_time") or 0),
+        ))
+    if not options:
+        raise ShippingUnavailable
+    return sorted(options, key=lambda o: (o.price, o.days))
 
-    Só o CEP decide a faixa: estado/cidade digitados não podem baratear o frete de quem está em
-    outro lugar (dest_state fica na assinatura só por compatibilidade e é ignorado).
-    """
-    cep = digits_cep(dest_cep)
-    if len(cep) != 8:
-        return None
-    dest_uf = uf_from_cep(cep)
-    if not dest_uf or origin is None or dest_uf != origin.state:
-        return "other"
-    origin_cep = digits_cep(origin.cep)
-    # mesmo estado: o nome da cidade só vale se o CEP for da mesma região postal da loja (3 dígitos)
-    # shortcut: 3 dígitos ≈ cidade nas capitais; em cidades pequenas a região pode juntar vizinhas
-    if dest_city and origin.city and _norm(dest_city) == _norm(origin.city) and cep[:3] == origin_cep[:3]:
-        return "local"
-    if origin_cep[:5] and cep[:5] == origin_cep[:5]:
-        return "local"
-    return "state"
+
+def shipping_options(settings: Any, dest_cep: str, items: list[tuple[int, float]]) -> list[ShippingOption]:
+    """Opções reais de entrega para o carrinho (items = [(quantidade, preço unitário)])."""
+    origin = parse_origin(settings.address)
+    token = (getattr(settings, "melhor_envio_token", None) or "").strip()
+    if not origin or not token:
+        raise ShippingUnavailable
+    sandbox = bool(getattr(settings, "melhor_envio_sandbox", False))
+    box = (settings.package_width_cm, settings.package_height_cm, settings.package_length_cm, settings.package_weight_g)
+    key = (digits_cep(origin.cep), dest_cep, tuple(items), box, sandbox, token[-8:])
+    hit = _cache.get(key)
+    if hit and time.monotonic() - hit[0] < CACHE_SECONDS:
+        return hit[1]
+    width, height, length, weight_g = box
+    body = {
+        "from": {"postal_code": digits_cep(origin.cep)},
+        "to": {"postal_code": dest_cep},
+        "products": [
+            {"id": str(i), "width": width, "height": height, "length": length, "weight": weight_g / 1000,
+             "insurance_value": money(price), "quantity": qty}
+            for i, (qty, price) in enumerate(items)
+        ],
+        "options": {"receipt": False, "own_hand": False},
+    }
+    options = _fetch_options(token, sandbox, settings.email or "contato@jcmoda.com.br", body)
+    if len(_cache) > 500:
+        _cache.clear()
+    _cache[key] = (time.monotonic(), options)
+    return options
 
 
 def quote_shipping(
@@ -146,28 +148,26 @@ def quote_shipping(
     goods_total: float,
     free_shipping_coupon: bool,
     dest_cep: str | None = None,
-    dest_city: str | None = None,
-    dest_state: str | None = None,
-    has_items: bool = True,
+    items: list[tuple[int, float]] | None = None,
+    service: int | None = None,
 ) -> ShippingQuote:
     pickup = str(getattr(delivery_method, "value", delivery_method)) == "retirada"
-    if pickup or free_shipping_coupon or not has_items:
-        return ShippingQuote(0.0, False, "Grátis")
-
-    if settings.free_shipping_min and goods_total >= settings.free_shipping_min:
-        return ShippingQuote(0.0, False, "Frete grátis")
-
-    zone = classify(parse_origin(settings.address), dest_cep, dest_city, dest_state)
-    if zone is None:
+    if pickup:
+        return ShippingQuote(0.0, False, "Retirada na loja")
+    if not items:
+        return ShippingQuote(0.0, False, "")
+    cep = digits_cep(dest_cep)
+    if len(cep) != 8:
         return ShippingQuote(0.0, True, "Informe o CEP para calcular")
-
-    local, state, other = resolve_rates(settings)
-    amount = {"local": local, "state": state, "other": other}[zone]
-    notes = {
-        "local": "Entrega na sua cidade",
-        "state": "Entrega no seu estado",
-        "other": "Entrega para outro estado",
-    }
-    if amount <= 0:
-        return ShippingQuote(0.0, False, "Grátis")
-    return ShippingQuote(money(amount), False, notes[zone])
+    try:
+        options = shipping_options(settings, cep, items)
+    except ShippingUnavailable:
+        return ShippingQuote(0.0, True, "Não deu para calcular o frete agora. Tente de novo ou fale com a loja no WhatsApp.")
+    # frete grátis só na opção mais barata (quem quer receber mais rápido paga a entrega)
+    if free_shipping_coupon or (settings.free_shipping_min and goods_total >= settings.free_shipping_min):
+        options = [ShippingOption(**{**o.__dict__, "price": 0.0, "free": True}) if i == 0 else o
+                   for i, o in enumerate(options)]
+    chosen = next((o for o in options if o.id == service), options[0])
+    label = f"{chosen.company} {chosen.name}".strip()
+    note = f"{label} · chega em até {chosen.days} {'dia útil' if chosen.days == 1 else 'dias úteis'}"
+    return ShippingQuote(chosen.price, False, note, options, chosen.id)

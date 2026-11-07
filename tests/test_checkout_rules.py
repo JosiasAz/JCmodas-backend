@@ -18,23 +18,85 @@ from app.schemas.catalog import ProductIn, VariantIn
 from app.schemas.order import CartLineIn, OrderIn, QuoteIn
 from app.services.orders import change_status, client_ref, create_order
 from app.services.pricing import build_quote
-from app.services.shipping import Origin, classify
+from app.services import shipping
 
-MANAUS = Origin(city="Manaus", state="AM", cep="69085-000")
+# resposta simulada do Melhor Envio (preço em texto, como a API real devolve); sem internet nos testes
+CHAMADAS = []
 
 
-def test_frete_segue_o_cep():
-    # cliente de SP digitando Manaus/AM não ganha frete local
-    assert classify(MANAUS, "01001-000", "Manaus", "AM") == "other"
-    # cliente do interior do AM digitando "Manaus" não ganha frete local
-    assert classify(MANAUS, "69400-000", "Manaus", "AM") == "state"
-    # cliente de Manaus continua com frete local
-    assert classify(MANAUS, "69010-000", "Manaus", "AM") == "local"
-    # CEP curto, incompleto ou fora das faixas não deixa o texto digitado decidir
-    assert classify(MANAUS, None, "Manaus", "AM") is None
-    assert classify(MANAUS, "1234", "Manaus", "AM") is None
-    assert classify(MANAUS, "6915000", "Manaus", "AM") is None
-    assert classify(MANAUS, "00000-000", "X", "AM") == "other"
+def _melhor_envio_falso(token, sandbox, contact, body):
+    CHAMADAS.append(body)
+    if body["to"]["postal_code"] == "99999999":
+        raise shipping.ShippingUnavailable
+    return sorted([
+        shipping.ShippingOption(id=2, name="SEDEX", company="Correios", price=38.5, days=3),
+        shipping.ShippingOption(id=1, name="PAC", company="Correios", price=21.9, days=9),
+    ], key=lambda o: o.price)
+
+
+_fetch_real = shipping._fetch_options
+shipping._fetch_options = _melhor_envio_falso
+
+
+def test_le_resposta_do_melhor_envio():
+    import io, json, urllib.request
+    resposta = [
+        {"id": 2, "name": "SEDEX", "custom_price": "38.50", "custom_delivery_time": 3, "company": {"name": "Correios"}},
+        {"id": 1, "name": "PAC", "price": "21.90", "custom_price": "21.90", "custom_delivery_time": 9, "company": {"name": "Correios"}},
+        {"id": 3, "name": ".Package", "error": "Serviço indisponível para o trecho.", "company": {"name": "Jadlog"}},
+    ]
+    enviado = {}
+
+    class Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def urlopen_falso(req, timeout):
+        enviado.update(url=req.full_url, headers=dict(req.header_items()), body=json.loads(req.data))
+        return Resp(json.dumps(resposta).encode())
+
+    original, urllib.request.urlopen = urllib.request.urlopen, urlopen_falso
+    try:
+        opcoes = _fetch_real("tok", False, "loja@x.com", {"to": {"postal_code": "01001000"}})
+    finally:
+        urllib.request.urlopen = original
+    assert [(o.id, o.price, o.days) for o in opcoes] == [(1, 21.9, 9), (2, 38.5, 3)]  # Jadlog com erro some
+    assert enviado["url"].endswith("/api/v2/me/shipment/calculate") and enviado["headers"]["Authorization"] == "Bearer tok"
+    assert "loja@x.com" in enviado["headers"]["User-agent"]
+
+
+def test_frete_real_cliente_escolhe_e_paga():
+    db, pid, vid = _db()
+    item = [CartLineIn(product_id=pid, variant_id=vid, quantity=1)]
+    q = build_quote(db, QuoteIn(items=item, cep="01001-000")).quote
+    assert [o.id for o in q.shipping_options] == [1, 2] and q.shipping == 21.9 and q.can_checkout  # mais barato
+    q = build_quote(db, QuoteIn(items=item, cep="01001-000", shipping_service=2)).quote
+    assert q.shipping == 38.5 and "SEDEX" in q.shipping_note and q.total == 138.5
+    # serviço inventado pelo cliente não vale: cai no mais barato, preço sempre do servidor
+    assert build_quote(db, QuoteIn(items=item, cep="01001-000", shipping_service=999)).quote.shipping == 21.9
+    assert CHAMADAS[-1]["products"][0]["insurance_value"] == 100 and CHAMADAS[-1]["from"]["postal_code"] == "69085000"
+
+
+def test_frete_gratis_so_na_opcao_mais_barata():
+    db, pid, vid = _db()
+    db.get(StoreSettings, 1).free_shipping_min = 50
+    db.commit()
+    item = [CartLineIn(product_id=pid, variant_id=vid, quantity=1)]
+    q = build_quote(db, QuoteIn(items=item, cep="01001-000")).quote
+    assert q.shipping == 0 and q.shipping_options[0].free and q.free_shipping_missing == 0
+    assert build_quote(db, QuoteIn(items=item, cep="01001-000", shipping_service=2)).quote.shipping == 38.5
+
+
+def test_sem_configuracao_ou_erro_nao_vira_frete_gratis():
+    db, pid, vid = _db()
+    item = [CartLineIn(product_id=pid, variant_id=vid, quantity=1)]
+    q = build_quote(db, QuoteIn(items=item, cep="99999-999")).quote  # Melhor Envio fora do ar
+    assert q.can_checkout is False and q.shipping_pending
+    assert build_quote(db, QuoteIn(items=item, cep="1234")).quote.can_checkout is False  # CEP incompleto
+    db.get(StoreSettings, 1).melhor_envio_token = None  # loja sem token (como ficou após perder o banco)
+    db.commit()
+    q = build_quote(db, QuoteIn(items=item, cep="01001-000")).quote
+    assert q.can_checkout is False and q.shipping == 0 and q.shipping_pending
 
 
 def _db():
@@ -43,7 +105,7 @@ def _db():
     Base.metadata.create_all(engine)
     db = Session(engine)
     db.add(StoreSettings(id=1, address="Rua A, 1 - Centro, Manaus/AM - CEP 69085-000",
-                         shipping_fee=10, shipping_state_fee=20, shipping_other_fee=40,
+                         melhor_envio_token="token-de-teste",
                          max_qty_per_item=2, pickup_enabled=False))
     product = Product(name="Camisa", slug="camisa", price=100)
     db.add(product)
@@ -69,15 +131,6 @@ def test_retirada_desligada_e_recusada():
     db.get(StoreSettings, 1).pickup_enabled = True
     db.commit()
     assert build_quote(db, QuoteIn(items=item, delivery_method="retirada")).quote.can_checkout is True
-
-
-def test_entrega_sem_cep_valido_nao_fecha_pedido():
-    db, pid, vid = _db()
-    item = [CartLineIn(product_id=pid, variant_id=vid, quantity=1)]
-    q = build_quote(db, QuoteIn(items=item, cep="1234", city="Manaus", state="AM")).quote
-    assert q.can_checkout is False and q.shipping == 0
-    q = build_quote(db, QuoteIn(items=item, cep="01001-000", city="Manaus", state="AM")).quote
-    assert q.can_checkout is True and q.shipping == 40
 
 
 def _pedido(db, vid, qty=2):
