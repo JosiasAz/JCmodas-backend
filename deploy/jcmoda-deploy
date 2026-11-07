@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# Único comando que a chave do GitHub Actions pode rodar no servidor (forced command no
+# ~/.ssh/authorized_keys). Mesmo se a chave vazar, ela só consegue publicar um commit que já
+# está na main do GitHub; não abre terminal, não usa sudo à vontade, não copia arquivos.
+#
+# Instalação (uma vez, como admin):  sudo install -o root -g root -m 755 deploy/jcmoda-deploy /usr/local/bin/
+# e na linha da chave github-actions-jcmoda do authorized_keys:
+#   restrict,command="/usr/local/bin/jcmoda-deploy" ssh-ed25519 AAAA... github-actions-jcmoda
+set -euo pipefail
+
+cmd="${SSH_ORIGINAL_COMMAND:-}"
+if [[ ! "$cmd" =~ ^deploy\ ([0-9a-f]{40})$ ]]; then
+  echo "!! comando não permitido para esta chave" >&2
+  exit 1
+fi
+sha="${BASH_REMATCH[1]}"
+
+cd /home/ubuntu/JC-Moda/backend
+git fetch --quiet origin main
+# só publica o que está na main (um "Run workflow" em outra branch não passa daqui)
+git merge-base --is-ancestor "$sha" origin/main || { echo "!! commit fora da main" >&2; exit 1; }
+git merge --ff-only "$sha"
+DEPLOY_SHA="$sha" exec bash deploy/atualizar.sh

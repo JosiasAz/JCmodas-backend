@@ -61,23 +61,15 @@ jobs:
         env:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
-          VPS_PATH: ${{ secrets.VPS_PATH }}
           # publica exatamente o commit que passou na conferência, não "o que estiver na main agora"
           DEPLOY_SHA: ${{ github.sha }}
         run: |
           # espaço ou quebra de linha colados junto com o valor fariam o host não bater com o known_hosts
           host=$(printf '%s' "$VPS_HOST" | tr -d '[:space:]')
           user=$(printf '%s' "$VPS_USER" | tr -d '[:space:]')
-          path=$(printf '%s' "$VPS_PATH" | tr -d '\r\n' | sed 's/[[:space:]]*$//')
-          # o caminho vai dentro de aspas num comando remoto: só aceita caminho simples
-          if ! printf '%s' "$path" | grep -Eq '^/[A-Za-z0-9._/-]+$'; then
-            echo "::error::VPS_PATH inválido. Use só letras, números, ponto, hífen, _ e /, começando com /."
-            exit 1
-          fi
-          # baixa o código antes de chamar o script: assim vale sempre a versão nova dele
-          # (e funciona até na primeira vez, quando o servidor ainda nem tem o deploy/atualizar.sh)
-          ssh -i ~/.ssh/deploy -o BatchMode=yes "$user@$host" \
-            "cd '$path' && git fetch --quiet origin main && git merge --ff-only $DEPLOY_SHA && DEPLOY_SHA=$DEPLOY_SHA bash deploy/atualizar.sh"
+          # no servidor, esta chave só roda /usr/local/bin/jcmoda-deploy (deploy/jcmoda-deploy):
+          # ele aceita apenas "deploy <commit da main>" e chama o deploy/atualizar.sh
+          ssh -i ~/.ssh/deploy -o BatchMode=yes "$user@$host" "deploy $DEPLOY_SHA"
 
       - name: Conferir a API pela internet
         env:
