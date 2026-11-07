@@ -10,7 +10,7 @@ from app.services.shipping import format_cnpj
 
 class LoginIn(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(max_length=128)
 
 
 class TokenOut(BaseModel):
@@ -48,7 +48,7 @@ class MfaCodeIn(BaseModel):
 
 
 class MfaDisableIn(BaseModel):
-    password: str
+    password: str = Field(max_length=128)
     code: str = Field(min_length=6, max_length=20)
 
 
@@ -85,7 +85,7 @@ class UserOut(ORM):
 
 
 class PasswordChange(BaseModel):
-    current_password: str
+    current_password: str = Field(max_length=128)
     new_password: Password
 
 

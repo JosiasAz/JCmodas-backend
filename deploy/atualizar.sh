@@ -12,7 +12,8 @@ main() {
   echo ">> Baixando o código novo"
   git fetch --quiet origin main
   # só avança; se alguém mexeu nos arquivos direto no servidor, para aqui em vez de sobrescrever
-  git merge --ff-only origin/main
+  # pelo GitHub Actions vem DEPLOY_SHA (o commit testado); à mão, vale a ponta da main
+  git merge --ff-only "${DEPLOY_SHA:-origin/main}"
   echo "   versão: $(git log --oneline -1)"
 
   echo ">> Instalando dependências"

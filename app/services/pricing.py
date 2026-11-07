@@ -32,7 +32,7 @@ from app.models import (
 from app.schemas.catalog import ProductOut
 from app.schemas.marketing import ComboItemOut, ComboOut
 from app.schemas.order import Discount, QuoteIn, QuoteLine, QuoteOut
-from app.services.shipping import quote_shipping
+from app.services.shipping import ShippingQuote, quote_shipping
 
 MIN_INSTALLMENT = 30.0  # valor mínimo de cada parcela no cartão
 
@@ -198,7 +198,7 @@ def build_quote(db: Session, data: QuoteIn) -> QuoteResult:
         expected = [ci.product_id for ci in combo.items for _ in range(ci.quantity)]
         chosen = [variants.get(v) for v in item.variant_ids]
         if len(chosen) != len(expected) or any(
-            v is None or v.product_id != pid for v, pid in zip(chosen, expected)
+            v is None or v.product_id != pid or not v.product.active for v, pid in zip(chosen, expected)
         ):
             continue  # combo mudou desde que foi colocado no carrinho
         for v in chosen:
@@ -233,9 +233,11 @@ def build_quote(db: Session, data: QuoteIn) -> QuoteResult:
                 else f"Só temos {v.stock} un. de {v.product.name} {variant_label(v)}"
             )
 
-    # limite por item (evita que um único pedido segure todo o estoque de uma peça)
+    # limite por item (evita que um único pedido segure todo o estoque de uma peça).
+    # Conta o total da variação no carrinho: repetir a peça em várias linhas não burla o limite.
     for line in resolved:
-        if line.quote.quantity > settings.max_qty_per_item:
+        needed = [line.variant] if line.variant else line.combo_variants
+        if any(reserved[v.id] > settings.max_qty_per_item for v in needed):
             can_checkout = False
             line.quote.available = False
             line.quote.message = f"Máximo de {settings.max_qty_per_item} unidades por item"
@@ -298,6 +300,10 @@ def build_quote(db: Session, data: QuoteIn) -> QuoteResult:
         has_items=bool(resolved),
     )
     shipping = ship.amount
+    # retirada desligada no painel: a tela esconde, mas a API também precisa recusar
+    if data.delivery_method == DeliveryMethod.PICKUP and not settings.pickup_enabled:
+        can_checkout = False
+        ship = ShippingQuote(0.0, True, "Retirada na loja indisponível. Escolha entrega.")
     free_shipping_missing = 0.0
     if (
         data.delivery_method != DeliveryMethod.PICKUP

@@ -119,7 +119,9 @@ def classify(
     dest_state: str | None,
 ) -> str | None:
     """'local' | 'state' | 'other'. None se ainda não dá para saber o destino."""
-    dest_uf = (dest_state or "").strip().upper() or uf_from_cep(dest_cep)
+    # o CEP manda: estado/cidade digitados não podem baratear o frete de quem está em outro lugar
+    cep_uf = uf_from_cep(dest_cep)
+    dest_uf = cep_uf or (dest_state or "").strip().upper()
     if not dest_uf and not (dest_city or "").strip() and len(digits_cep(dest_cep)) < 8:
         return None
     if not dest_uf:
@@ -131,7 +133,10 @@ def classify(
     if dest_uf != origin.state:
         return "other"
     # mesmo estado: cidade só entra se os dois lados tiverem nome
-    if dest_city and origin.city and _norm(dest_city) == _norm(origin.city):
+    # e, com CEP completo, se ele for da mesma região postal da loja (3 primeiros dígitos)
+    # shortcut: 3 dígitos ≈ cidade nas capitais; em cidades pequenas a região pode juntar vizinhas
+    same_region = len(digits_cep(dest_cep)) < 8 or digits_cep(dest_cep)[:3] == digits_cep(origin.cep)[:3]
+    if dest_city and origin.city and _norm(dest_city) == _norm(origin.city) and same_region:
         return "local"
     origin_prefix = digits_cep(origin.cep)[:5]
     dest_prefix = digits_cep(dest_cep)[:5]

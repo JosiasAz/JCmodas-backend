@@ -53,6 +53,9 @@ def _clean_image(content: bytes, ext: str) -> bytes:
         return content
     try:
         with Image.open(BytesIO(content)) as img:
+            # o Pillow só barra acima do DOBRO de MAX_IMAGE_PIXELS (entre 1x e 2x só avisa)
+            if img.width * img.height > MAX_PIXELS:
+                raise Image.DecompressionBombError("resolução acima do limite")
             img = ImageOps.exif_transpose(img)
             if ext == ".jpg" and img.mode not in ("RGB", "L"):
                 img = img.convert("RGB")

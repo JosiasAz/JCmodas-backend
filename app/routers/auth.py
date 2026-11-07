@@ -1,5 +1,5 @@
 from fastapi import APIRouter, HTTPException, Request
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.core import google, totp
 from app.core.config import settings
@@ -113,17 +113,22 @@ def login_mfa(data: MfaLoginIn, db: DB, request: Request):
     if not user or user.token_version != decoded[1] or not user.mfa_enabled:
         raise HTTPException(401, "Sessão expirada. Entre com a senha de novo.")
     key = str(user.id)
-    retry = _login_per_ip.hit(client_ip(request)) or _mfa_fail.blocked(key)
+    # conta a tentativa antes de conferir (e zera no acerto): pedidos simultâneos não passam do limite
+    retry = _login_per_ip.hit(client_ip(request)) or _mfa_fail.hit(key)
     if retry:
         raise too_many(retry, "Muitas tentativas. Aguarde alguns minutos.")
 
     step = totp.verify(user.mfa_secret or "", data.code, user.mfa_last_step)
     if step is not None:
-        user.mfa_last_step = step
+        # UPDATE condicional: o mesmo código usado duas vezes ao mesmo tempo só vale uma
+        claimed = db.execute(
+            update(User).where(User.id == user.id, User.mfa_last_step < step).values(mfa_last_step=step)
+        ).rowcount
+        if not claimed:
+            raise HTTPException(401, "Código inválido")
     else:
         hashed = totp.hash_recovery_code(data.code)
         if hashed not in (user.mfa_recovery or []):
-            _mfa_fail.hit(key)
             record("mfa_falhou", request=request, user_id=user.id, user_email=user.email, entity="users")
             security_event("mfa_fail", request, user=user.email)
             raise HTTPException(401, "Código inválido")

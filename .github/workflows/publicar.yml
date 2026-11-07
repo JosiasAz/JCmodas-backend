@@ -20,8 +20,9 @@ jobs:
     name: Conferir se o código abre
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
-      - uses: actions/setup-python@v6
+      # actions fixadas pelo commit (a tag pode ser movida; o commit não)
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6.3.0
         with:
           python-version-file: .python-version
           cache: pip
@@ -38,7 +39,7 @@ jobs:
     environment: VPS_HOST
     steps:
       # só para pegar o deploy/known_hosts (identidade pública do servidor)
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           sparse-checkout: deploy
 
@@ -61,15 +62,22 @@ jobs:
           VPS_HOST: ${{ secrets.VPS_HOST }}
           VPS_USER: ${{ secrets.VPS_USER }}
           VPS_PATH: ${{ secrets.VPS_PATH }}
+          # publica exatamente o commit que passou na conferência, não "o que estiver na main agora"
+          DEPLOY_SHA: ${{ github.sha }}
         run: |
           # espaço ou quebra de linha colados junto com o valor fariam o host não bater com o known_hosts
           host=$(printf '%s' "$VPS_HOST" | tr -d '[:space:]')
           user=$(printf '%s' "$VPS_USER" | tr -d '[:space:]')
           path=$(printf '%s' "$VPS_PATH" | tr -d '\r\n' | sed 's/[[:space:]]*$//')
+          # o caminho vai dentro de aspas num comando remoto: só aceita caminho simples
+          if ! printf '%s' "$path" | grep -Eq '^/[A-Za-z0-9._/-]+$'; then
+            echo "::error::VPS_PATH inválido. Use só letras, números, ponto, hífen, _ e /, começando com /."
+            exit 1
+          fi
           # baixa o código antes de chamar o script: assim vale sempre a versão nova dele
           # (e funciona até na primeira vez, quando o servidor ainda nem tem o deploy/atualizar.sh)
           ssh -i ~/.ssh/deploy -o BatchMode=yes "$user@$host" \
-            "cd '$path' && git fetch --quiet origin main && git merge --ff-only origin/main && bash deploy/atualizar.sh"
+            "cd '$path' && git fetch --quiet origin main && git merge --ff-only $DEPLOY_SHA && DEPLOY_SHA=$DEPLOY_SHA bash deploy/atualizar.sh"
 
       - name: Conferir a API pela internet
         env:

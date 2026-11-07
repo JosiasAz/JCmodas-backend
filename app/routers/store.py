@@ -11,6 +11,7 @@ from sqlalchemy.orm import selectinload
 
 from app.core.deps import DB
 from app.core.rate_limit import RateLimiter, client_ip, limit
+from app.core.scraper import block_scrapers
 from app.models import Banner, BannerPlacement, Category, Combo, ComboItem, Coupon, CouponKind, Order, Product, ProductVariant
 from app.schemas.catalog import CategoryOut, ProductFilters, ProductOut, ProductPage
 from app.schemas.marketing import BannerOut, ComboOut, PromotionOut
@@ -55,7 +56,13 @@ def image_thumb(width: int, name: str):
     return FileResponse(path, media_type="image/webp", headers={"Cache-Control": "public, max-age=31536000, immutable"})
 
 
-@router.get("/store", response_model=PublicSettingsOut)
+# vitrine: o cliente navega pouco; raspador de preço dispara dezenas de chamadas por minuto
+_STORE = [Depends(block_scrapers), Depends(limit(40, 60))]
+_CATALOG = [Depends(block_scrapers), Depends(limit(24, 60))]
+_PRODUCT = [Depends(block_scrapers), Depends(limit(40, 60))]
+
+
+@router.get("/store", response_model=PublicSettingsOut, dependencies=_STORE)
 def store_info(db: DB):
     return get_settings(db)
 
@@ -94,7 +101,7 @@ def exchange(db: DB, template: bool = False):
     return {"text": exchange_text(store, force_template=template), "is_template": use_template}
 
 
-@router.get("/home")
+@router.get("/home", dependencies=_STORE)
 def home(db: DB):
     """Tudo que a página inicial precisa, em uma chamada só."""
     now = datetime.now()
@@ -126,12 +133,12 @@ def home(db: DB):
     }
 
 
-@router.get("/categories", response_model=list[CategoryOut])
+@router.get("/categories", response_model=list[CategoryOut], dependencies=_CATALOG)
 def categories(db: DB):
     return db.scalars(select(Category).where(Category.active).order_by(Category.sort, Category.name)).all()
 
 
-@router.get("/products", response_model=ProductPage)
+@router.get("/products", response_model=ProductPage, dependencies=_CATALOG)
 def products(
     db: DB,
     q: str | None = Query(None, max_length=80),
@@ -143,7 +150,7 @@ def products(
     on_sale: bool = False,
     sort: Sort = "relevance",
     page: int = Query(1, ge=1),
-    page_size: int = Query(12, ge=1, le=60),
+    page_size: int = Query(12, ge=1, le=24),
 ):
     expire_if_due(db)  # estoque de pedidos não pagos vencidos volta antes de mostrar a vitrine
     query = _product_query()
@@ -189,7 +196,7 @@ def products(
     )
 
 
-@router.get("/products/filters", response_model=ProductFilters)
+@router.get("/products/filters", response_model=ProductFilters, dependencies=_CATALOG)
 def product_filters(db: DB):
     variants = db.scalars(
         select(ProductVariant).join(Product).where(Product.active, ProductVariant.stock > 0)
@@ -207,7 +214,7 @@ def product_filters(db: DB):
     )
 
 
-@router.get("/products/{slug}")
+@router.get("/products/{slug}", dependencies=_PRODUCT)
 def product_detail(slug: str, db: DB):
     product = db.scalar(_product_query().where(Product.slug == slug))
     if not product:
@@ -229,13 +236,13 @@ def product_detail(slug: str, db: DB):
     }
 
 
-@router.get("/combos", response_model=list[ComboOut])
+@router.get("/combos", response_model=list[ComboOut], dependencies=_CATALOG)
 def combos(db: DB):
     promos = running_promotions(db)
     return [serialize_combo(c, promos) for c in _active_combos(db)]
 
 
-@router.get("/combos/{slug}", response_model=ComboOut)
+@router.get("/combos/{slug}", response_model=ComboOut, dependencies=_PRODUCT)
 def combo_detail(slug: str, db: DB):
     combo = next((c for c in _active_combos(db) if c.slug == slug), None)
     if not combo:

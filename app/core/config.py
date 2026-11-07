@@ -1,3 +1,4 @@
+import secrets
 from typing import Literal
 
 from pydantic import field_validator
@@ -63,6 +64,10 @@ class Settings(BaseSettings):
     def check_production(self) -> None:
         """Impede publicar a loja com valores de exemplo."""
         if not self.is_production:
+            # a chave padrão é pública: se o servidor subir sem ENVIRONMENT=production por engano,
+            # ninguém consegue forjar login de admin com ela. Em dev só força novo login a cada restart.
+            if self.secret_key == DEFAULT_SECRET:
+                self.secret_key = secrets.token_urlsafe(48)
             return
         problems = []
         if self.database_url.startswith("sqlite"):

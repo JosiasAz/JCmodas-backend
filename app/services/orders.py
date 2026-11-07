@@ -53,7 +53,8 @@ def create_order(db: Session, data: OrderIn) -> Order:
     if not quote.lines:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, "Seu carrinho está vazio")
     if not quote.can_checkout:
-        problem = next((line.message for line in quote.lines if line.message), "Revise seu carrinho")
+        problem = next((line.message for line in quote.lines if line.message), None)
+        problem = problem or (quote.shipping_note if quote.shipping_pending else "Revise seu carrinho")
         raise HTTPException(status.HTTP_409_CONFLICT, problem)
 
     order = Order(
