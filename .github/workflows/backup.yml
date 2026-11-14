@@ -1,6 +1,7 @@
 # Cópia diária do banco (snapshot do Neon), guardada fora da branch: se a branch for apagada
 # ou os dados estragarem, dá para restaurar em Neon > Backup & restore.
 # O plano grátis não tem agendamento próprio de snapshot, então quem agenda é o GitHub.
+# O plano grátis também só permite 1 snapshot manual: fica sempre só a cópia mais recente.
 # Configuração única: secret NEON_API_KEY (Neon > Settings > API keys, de preferência
 # uma chave restrita ao projeto JC-modas) em Settings > Secrets and variables > Actions.
 name: Backup diário do banco
@@ -24,8 +25,14 @@ jobs:
           BRANCH: br-holy-field-b6hmjt1t # production
         run: |
           [ -n "$NEON_API_KEY" ] || { echo "::error::Falta o secret NEON_API_KEY."; exit 1; }
-          name="diario-$(date -u +%Y-%m-%d)"
-          expires=$(date -u -d '+14 days' +%Y-%m-%dT%H:%M:%SZ) # cada cópia se apaga sozinha em 14 dias
-          curl -fsS -X POST -H "Authorization: Bearer $NEON_API_KEY" \
-            "https://console.neon.tech/api/v2/projects/$PROJECT/branches/$BRANCH/snapshot?name=$name&expires_at=$expires" \
+          api="https://console.neon.tech/api/v2/projects/$PROJECT"
+          auth="Authorization: Bearer $NEON_API_KEY"
+          # O plano grátis só guarda 1 snapshot manual: apaga o anterior antes de criar o novo.
+          for id in $(curl -sS --fail-with-body -H "$auth" "$api/snapshots" \
+            | python3 -c "import json,sys; print(' '.join(s['id'] for s in json.load(sys.stdin)['snapshots'] if s.get('source_branch_id')=='$BRANCH'))"); do
+            curl -sS --fail-with-body -X DELETE -H "$auth" "$api/snapshots/$id" > /dev/null
+            echo "snapshot antigo apagado: $id"
+          done
+          curl -sS --fail-with-body -X POST -H "$auth" \
+            "$api/branches/$BRANCH/snapshot?name=diario-$(date -u +%Y-%m-%d)" \
             | python3 -c "import json,sys; s=json.load(sys.stdin)['snapshot']; print('snapshot criado:', s['id'], s['name'])"
