@@ -80,6 +80,7 @@ def create_order(db: Session, data: OrderIn, ref: str = "") -> Order:
         code=_new_code(db),
         **data.model_dump(exclude={"items", "combos", "coupon_code", "installments", "website", "shipping_service"}),
         shipping_method=quote.shipping_note or "",
+        shipping_service_id=quote.shipping_service if data.delivery_method == "entrega" else None,
         installments=min(data.installments, quote.max_installments) if data.payment_method == "cartao" else 1,
         subtotal=quote.subtotal,
         discount=quote.discount_total,

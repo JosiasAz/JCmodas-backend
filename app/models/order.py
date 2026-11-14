@@ -58,6 +58,11 @@ class Order(Base):
     coupon_code: Mapped[str | None] = mapped_column(String(30))
     # entrega escolhida no checkout, ex.: "Correios SEDEX · chega em até 3 dias úteis"
     shipping_method: Mapped[str] = mapped_column(String(160), default="", server_default="")
+    # código do serviço do Melhor Envio escolhido no checkout (ex.: 1 = PAC): a etiqueta compra o mesmo
+    shipping_service_id: Mapped[int | None]
+    # envio criado no Melhor Envio pelo botão "Gerar etiqueta" (id do carrinho/etiqueta lá)
+    me_shipment_id: Mapped[str | None] = mapped_column(String(64))
+    tracking_code: Mapped[str | None] = mapped_column(String(40))
     # HMAC do IP de quem fez o pedido (não o IP em si): limita pedidos não pagos por visitante
     client_ref: Mapped[str] = mapped_column(String(16), default="", server_default="")
 
@@ -66,6 +71,10 @@ class Order(Base):
     items: Mapped[list["OrderItem"]] = relationship(
         back_populates="order", cascade="all, delete-orphan", order_by="OrderItem.id"
     )
+
+    @property
+    def label_started(self) -> bool:
+        return bool(self.me_shipment_id)
 
 
 class OrderItem(Base):

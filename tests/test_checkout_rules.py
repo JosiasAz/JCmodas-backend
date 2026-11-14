@@ -200,6 +200,15 @@ def test_limite_de_pedidos_abertos_por_visitante():
     assert client_ref("203.0.113.7") == ref and client_ref("203.0.113.8") != ref
 
 
+def test_pedido_guarda_o_frete_escolhido_para_a_etiqueta():
+    db, pid, vid = _db()
+    order = create_order(db, OrderIn(items=[CartLineIn(product_id=pid, variant_id=vid, quantity=1)],
+                                     delivery_method="entrega", customer_name="Ana", phone="92999990001",
+                                     cep="01001-000", street="Rua A", number="1", district="Centro", city="São Paulo",
+                                     state="SP", shipping_service=2), client_ref("203.0.113.9"))
+    assert order.shipping_service_id == 2 and order.shipping == 38.5 and not order.label_started
+
+
 def test_salvar_produto_nao_apaga_venda_feita_com_formulario_aberto():
     db, pid, vid = _db()  # estoque 10: o admin abre o formulário e vê 10
     other = Session(db.get_bind())

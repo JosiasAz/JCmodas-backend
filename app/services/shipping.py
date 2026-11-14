@@ -43,6 +43,18 @@ class Origin:
     cep: str
 
 
+_ADDRESS_PARTS = re.compile(
+    r"^(?P<street>.+), (?P<number>[^,()]+?)(?: \((?P<complement>[^)]*)\))? - (?:(?P<district>.+?), )?"
+    r"(?P<city>[^,]+)/(?P<state>[A-Z]{2}) - CEP (?P<cep>\d{5}-\d{3})$"
+)
+
+
+def parse_address(address: str) -> dict[str, str] | None:
+    """Endereço da loja em partes (rua, número, complemento, bairro, cidade, UF, CEP) para a etiqueta."""
+    m = _ADDRESS_PARTS.match((address or "").strip())
+    return {k: (v or "").strip() for k, v in m.groupdict().items()} if m else None
+
+
 def parse_origin(address: str) -> Origin | None:
     """Lê o endereço salvo pela tela de Configurações. Endereço antigo, escrito à mão: None."""
     m = _ADDRESS.match((address or "").strip())
@@ -115,7 +127,9 @@ def _fetch_options(token: str, sandbox: bool, contact: str, body: dict[str, Any]
 
 # ---------------------------------------------------------------- conexão (OAuth do Melhor Envio)
 # O token vale 30 dias e o refresh_token 45: a tarefa de fundo (main.py) renova antes de vencer.
-SCOPE = "shipping-calculate"
+# cotação + etiqueta (carrinho, compra com o saldo da Melhor Carteira, geração, impressão e rastreio).
+# Mudou a lista? O lojista precisa clicar em "Conectar de novo" para o token ganhar as permissões novas.
+SCOPE = "shipping-calculate cart-read cart-write shipping-checkout shipping-generate shipping-print shipping-tracking"
 REFRESH_BEFORE = timedelta(days=7)
 
 
@@ -224,3 +238,142 @@ def quote_shipping(
     label = f"{chosen.company} {chosen.name}".strip()
     note = f"{label} · chega em até {chosen.days} {'dia útil' if chosen.days == 1 else 'dias úteis'}"
     return ShippingQuote(chosen.price, False, note, options, chosen.id)
+
+
+# ---------------------------------------------------------------- etiqueta (botão "Gerar etiqueta" do pedido)
+class LabelError(Exception):
+    """Etiqueta não saiu; a mensagem já vem pronta para o lojista."""
+
+
+# situações do envio no Melhor Envio, na ordem em que acontecem
+_PAID = {"released", "generated", "posted", "delivered"}
+_GENERATED = {"generated", "posted", "delivered"}
+
+
+def _me_call(settings: Any, path: str, body: dict[str, Any]) -> Any:
+    token = (getattr(settings, "melhor_envio_token", None) or "").strip()
+    if not token:
+        raise LabelError("O Melhor Envio não está conectado. Conecte em Configurações > Frete.")
+    req = urllib.request.Request(
+        f"{API[bool(getattr(settings, 'melhor_envio_sandbox', False))]}{path}",
+        data=json.dumps(body).encode(), method="POST",
+        headers={"Accept": "application/json", "Content-Type": "application/json",
+                 "Authorization": f"Bearer {token}",
+                 "User-Agent": f"JC Moda ({settings.email or 'contato@jcmoda.com.br'})"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=20) as res:
+            return json.loads(res.read() or b"{}")
+    except urllib.error.HTTPError as exc:
+        raw = exc.read().decode(errors="replace")[:2000]
+        log.warning("Melhor Envio recusou %s: %s %s", path, exc.code, raw)
+        if exc.code in (401, 403):
+            raise LabelError("O Melhor Envio não deu permissão para gerar etiqueta. Em Configurações > Frete, "
+                             "clique em \"Conectar de novo\" e autorize.") from exc
+        raise LabelError(f"O Melhor Envio recusou: {_me_message(raw)}") from exc
+    except (urllib.error.URLError, TimeoutError, ValueError) as exc:
+        log.warning("Melhor Envio não respondeu (%s): %s", path, exc)
+        raise LabelError("O Melhor Envio não respondeu. Tente de novo em alguns minutos.") from exc
+
+
+def _me_message(raw: str) -> str:
+    """Tira a mensagem legível do erro do Melhor Envio ({"message": ..., "errors": {campo: [..]}})."""
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return raw[:200] or "erro desconhecido"
+    parts = []
+    errors = data.get("errors") or data.get("error") or {}
+    if isinstance(errors, dict):
+        for value in errors.values():
+            parts.extend(str(v) for v in (value if isinstance(value, list) else [value]))
+    if not parts and data.get("message"):
+        parts.append(str(data["message"]))
+    return "; ".join(parts)[:400] or "erro desconhecido"
+
+
+def _digits(value: str | None) -> str:
+    return re.sub(r"\D", "", value or "")
+
+
+def label_payload(settings: Any, order: Any) -> dict[str, Any]:
+    """Pedido no formato do carrinho do Melhor Envio (POST /api/v2/me/cart)."""
+    store = parse_address(settings.address)
+    if not store:
+        raise LabelError("Preencha o endereço completo da loja (com CEP) em Configurações.")
+    cnpj = _digits(settings.cnpj)
+    if len(cnpj) != 14:
+        raise LabelError("Preencha o CNPJ da loja em Configurações: ele vai como remetente na etiqueta.")
+    qty = sum(i.quantity for i in order.items) or 1
+    width, height, length, weight_g = (settings.package_width_cm, settings.package_height_cm,
+                                       settings.package_length_cm, settings.package_weight_g)
+    goods = money(max(order.subtotal - (order.discount or 0), 0.01))
+    return {
+        "service": order.shipping_service_id,
+        "from": {
+            "name": (settings.legal_name or settings.store_name)[:60], "phone": _digits(settings.whatsapp)[-11:],
+            "email": settings.email or "", "company_document": cnpj,
+            "state_register": "",  # envio sem nota (declaração de conteúdo): inscrição estadual vazia
+            "address": store["street"], "number": store["number"], "complement": store["complement"],
+            "district": store["district"], "city": store["city"], "state_abbr": store["state"],
+            "country_id": "BR", "postal_code": _digits(store["cep"]),
+        },
+        "to": {
+            "name": order.customer_name[:60], "phone": _digits(order.phone)[-11:], "email": order.email or "",
+            "address": order.street or "", "number": order.number or "s/n", "complement": order.complement or "",
+            "district": order.district or "", "city": order.city or "", "state_abbr": order.state or "",
+            "country_id": "BR", "postal_code": _digits(order.cep),
+        },
+        # vai na declaração de conteúdo: precisa estar completo (nome, quantidade, valor de cada item)
+        "products": [{"name": f"{i.name} {i.detail}".strip()[:100], "quantity": i.quantity,
+                      "unitary_value": money(i.unit_price)} for i in order.items],
+        # shortcut: uma caixa só, com as peças empilhadas (altura x quantidade); se a loja usar
+        # caixas de tamanhos diferentes, trocar por uma escolha de caixa no pedido
+        "volumes": [{"width": width, "height": height * qty, "length": length,
+                     "weight": round(weight_g * qty / 1000, 3)}],
+        "options": {"insurance_value": goods, "receipt": False, "own_hand": False, "reverse": False,
+                    "non_commercial": True, "platform": "JC Moda", "tags": [{"tag": order.code}]},
+    }
+
+
+def buy_label(settings: Any, order: Any) -> None:
+    """Compra e gera a etiqueta do pedido (quem chama faz o commit, inclusive se der erro no meio).
+
+    Pode ser chamada de novo depois de um erro: continua do passo em que parou, sem comprar duas vezes.
+    """
+    if str(getattr(order.delivery_method, "value", order.delivery_method)) != "entrega":
+        raise LabelError("Pedido de retirada na loja não tem etiqueta.")
+    if not order.shipping_service_id:
+        raise LabelError("Este pedido é de antes da etiqueta automática e não guardou o frete escolhido. "
+                         "Gere a etiqueta direto no site do Melhor Envio.")
+    status = ""
+    if order.me_shipment_id:
+        status = label_status(settings, order)
+    else:
+        created = _me_call(settings, "/api/v2/me/cart", label_payload(settings, order))
+        if not created.get("id"):
+            raise LabelError("O Melhor Envio não devolveu o envio criado. Tente de novo.")
+        order.me_shipment_id = str(created["id"])
+    ids = {"orders": [order.me_shipment_id]}
+    if status not in _PAID:
+        _me_call(settings, "/api/v2/me/shipment/checkout", ids)  # paga com o saldo da Melhor Carteira
+    if status not in _GENERATED:
+        _me_call(settings, "/api/v2/me/shipment/generate", ids)
+    label_status(settings, order)  # já traz o código de rastreio, quando a transportadora libera
+
+
+def label_status(settings: Any, order: Any) -> str:
+    """Situação do envio no Melhor Envio; guarda o código de rastreio no pedido quando houver."""
+    info = (_me_call(settings, "/api/v2/me/shipment/tracking", {"orders": [order.me_shipment_id]}) or {})
+    info = info.get(order.me_shipment_id) or {}
+    if info.get("tracking"):
+        order.tracking_code = str(info["tracking"])[:40]
+    return str(info.get("status") or "")
+
+
+def label_print_url(settings: Any, order: Any) -> str:
+    """Link do PDF da etiqueta (abre logado na conta do Melhor Envio da loja)."""
+    data = _me_call(settings, "/api/v2/me/shipment/print", {"mode": "private", "orders": [order.me_shipment_id]})
+    if not data.get("url"):
+        raise LabelError("O Melhor Envio não devolveu o link da etiqueta. Tente de novo.")
+    return str(data["url"])

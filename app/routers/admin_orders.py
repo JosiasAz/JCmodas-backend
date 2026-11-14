@@ -2,7 +2,7 @@
 import math
 from datetime import date, datetime, timedelta
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import selectinload
@@ -12,7 +12,9 @@ from app.models import Order, OrderItem, OrderStatus, Product, ProductVariant
 from app.schemas.order import OrderOut, OrderPage, OrderStatusIn
 from app.schemas.store import DashboardOut, SettingsIn, SettingsOut
 from app.services.orders import anonymize_orders, change_status, expire_pending_orders
+from app.core.rate_limit import limit
 from app.services.pricing import get_settings
+from app.services.shipping import LabelError, buy_label, label_print_url
 
 router = APIRouter(prefix="/api/admin", tags=["Painel - Vendas"])
 
@@ -46,6 +48,31 @@ def get_order(order_id: int, db: DB, _: Admin):
     if not order:
         raise HTTPException(404, "Pedido não encontrado")
     return order
+
+
+@router.post("/orders/{order_id}/label", dependencies=[Depends(limit(10, 60))])
+def make_label(order_id: int, db: DB, _: Admin, request: Request):
+    """Compra a etiqueta no Melhor Envio (saldo da Melhor Carteira), gera e devolve o link do PDF.
+
+    Clicar de novo só reimprime: nada é comprado duas vezes.
+    """
+    order = db.get(Order, order_id)
+    if not order:
+        raise HTTPException(404, "Pedido não encontrado")
+    if order.status == OrderStatus.NEW:
+        raise HTTPException(409, "Confirme o pagamento antes de gerar a etiqueta.")
+    if order.status == OrderStatus.CANCELED:
+        raise HTTPException(409, "Pedido cancelado não tem etiqueta.")
+    settings = get_settings(db)
+    request.state.audit_summary = f"{order.code}: etiqueta do Melhor Envio"
+    try:
+        buy_label(settings, order)
+        url = label_print_url(settings, order)
+    except LabelError as exc:
+        db.commit()  # guarda o envio já criado: a próxima tentativa continua dele, sem comprar de novo
+        raise HTTPException(400, str(exc)) from exc
+    db.commit()
+    return {"url": url, "tracking_code": order.tracking_code}
 
 
 @router.patch("/orders/{order_id}/status", response_model=OrderOut)

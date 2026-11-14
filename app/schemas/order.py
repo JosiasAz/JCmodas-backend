@@ -151,6 +151,8 @@ class OrderOut(ORM):
     coupon_code: str | None
     created_at: datetime
     items: list[OrderItemOut]
+    tracking_code: str | None = None  # código de rastreio da etiqueta (o cliente acompanha pelo site da transportadora)
+    label_started: bool = False
 
 
 class OrderPage(BaseModel):
