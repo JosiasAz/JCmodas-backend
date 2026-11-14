@@ -1,7 +1,8 @@
 """Painel: categorias, produtos e upload de imagens."""
 from io import BytesIO
+from xml.etree import ElementTree
 
-from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, Request, Response, UploadFile
 from PIL import Image, ImageOps
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy import case, func, or_, select, update
@@ -13,6 +14,7 @@ from app.models import Banner, Category, Combo, ComboItem, OrderItem, Product, P
 from app.services.catalog_links import release_from_orders
 from app.schemas.catalog import CategoryIn, CategoryOut, ProductIn, ProductOut
 from app.services.pricing import running_promotions, serialize_product
+from app.services.product_import import TEMPLATE, SheetError, import_products, read_sheet
 from app.services.slug import unique_slug
 from app.services.storage import FILE_NAME, remove_cached, save_image
 
@@ -123,6 +125,28 @@ def list_products(db: DB, _: Admin, q: str | None = None, category_id: int | Non
         query = query.where(Product.category_id == category_id)
     promos = running_promotions(db)
     return [serialize_product(p, promos) for p in db.scalars(query)]
+
+
+@router.get("/products/import-template")
+def import_template(_: Admin):
+    """Modelo da planilha em CSV com ";" (abre direto no Excel em português)."""
+    return Response("﻿" + TEMPLATE, media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="modelo-produtos.csv"'})
+
+
+@router.post("/products/import", dependencies=[Depends(limit(10, 60))])
+async def import_products_sheet(file: UploadFile, db: DB, _: Admin, request: Request):
+    """Cria produtos a partir de uma planilha .xlsx ou .csv (uma linha por tamanho/cor)."""
+    content = await file.read(MAX_UPLOAD + 1)
+    if len(content) > MAX_UPLOAD:
+        raise HTTPException(413, "Planilha maior que 4 MB.")
+    try:
+        rows = await run_in_threadpool(read_sheet, content)
+    except (SheetError, ElementTree.ParseError, KeyError, IndexError, ValueError) as exc:
+        raise HTTPException(400, str(exc) if isinstance(exc, SheetError) else "Não consegui ler a planilha.") from exc
+    result = import_products(db, rows)
+    request.state.audit_summary = f"Planilha: {len(result['created'])} produtos criados"
+    return result
 
 
 @router.get("/products/{product_id}", response_model=ProductOut)
